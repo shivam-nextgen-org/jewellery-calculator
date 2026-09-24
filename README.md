@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Atelier · Jewellery Pricing
 
-## Getting Started
+## Quick start
 
-First, run the development server:
+1. Install and start [MongoDB Community](https://www.mongodb.com/try/download/community) locally (default port **27017**).
+
+2. Ensure `.env` has:
+
+```
+DATABASE_URL="mongodb://localhost:27017/atelier"
+OCR_PROVIDER=mock
+```
+
+3. Push schema + seed (first time):
+
+```bash
+npx prisma db push
+npm run db:seed
+```
+
+4. Run app:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Script | Purpose |
+|--------|---------|
+| `npm run db:push` | Sync Prisma schema to MongoDB |
+| `npm run db:seed` | Seed lookups + pricing defaults |
+| `npm run db:studio` | Prisma Studio |
 
-## Learn More
+## OCR (real)
 
-To learn more about Next.js, take a look at the following resources:
+Default provider is **Tesseract.js** with **local** language data (no CDN at runtime).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run ocr:tessdata   # once — downloads eng.traineddata.gz into ./tessdata
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`.env`:
 
-## Deploy on Vercel
+```env
+OCR_PROVIDER=tesseract
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Upload a clear design-sheet image on `/pricing`
+2. Click **Process image**
+3. Verify / correct fields → Continue to Pricing
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Demo mode without real images:
+
+```env
+OCR_PROVIDER=mock
+```
+
+## Phase status
+
+- ✅ Phase 1 — App shell + Pricing Workspace UI
+- ✅ Phase 2 — Decimal pricing engine + live variations
+- ✅ Phase 3 — Prisma + MongoDB, defaults, save product + snapshots
+- ✅ Phase 4 — OCR abstraction + gold-code parser + verify wiring
+- ✅ Real OCR — Tesseract.js local provider + sheet text parser
+- ⏳ Export / auth / cloud Vision providers

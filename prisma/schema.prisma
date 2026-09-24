@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum ChargeCalcType {
+  PER_GRAM
+  FIXED
+  PERCENTAGE
+}
+
+enum GoldMetalCode {
+  GOLD
+  SILVER
+  PLATINUM
+}
+
+enum GoldColorCode {
+  YELLOW
+  WHITE
+  ROSE
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  USER
+}
+
+model User {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  settings     AppSetting[]
+  ocrImports   OcrImport[]
+  products     JewelleryProduct[]
+  calculations PricingCalculation[]
+  apiKeys      ApiKey[]
+}
+
+model ApiKey {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String    @db.ObjectId
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  prefix     String    @unique
+  keyHash    String
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Lookup: gold metals
+model GoldMetal {
+  id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  code      GoldMetalCode @unique
+  label     String
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+/// Lookup: gold purities with configurable percentage
+model GoldPurity {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  code       String   @unique
+  label      String
+  percentage Float
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// Lookup: gold colors
+model GoldColor {
+  id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  code      GoldColorCode @unique
+  label     String
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model DiamondType {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  code      String   @unique
+  label     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DiamondShape {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  code      String   @unique
+  label     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ChargeType {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  code      String   @unique
+  label     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Per-user pricing defaults
+model AppSetting {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([userId, key])
+}
+
+model OcrImport {
+  id        String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String            @db.ObjectId
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName  String?
+  status    String            @default("mock")
+  createdAt DateTime          @default(now())
+  extracted OcrExtractedData?
+  product   JewelleryProduct?
+
+  @@index([userId])
+}
+
+model OcrExtractedData {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  importId         String    @unique @db.ObjectId
+  import           OcrImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  designNo         String
+  category         String
+  goldCode         String?
+  goldMetal        String?
+  goldPurity       String?
+  goldColor        String?
+  grossWeight      Float?
+  netWeight        Float
+  pureWeight       Float?
+  size             String?
+  diamondWeight    Float
+  diamondShape     String?
+  diamondType      String?
+  diamondPurity    String?
+  diamondPieces    Int?
+  certified        String?
+  certificatePrice Float?
+  rawJson          Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model JewelleryProduct {
+  id             String                @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String                @db.ObjectId
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  designNo       String
+  category       String
+  goldCode       String?
+  goldMetal      String?
+  goldPurity     String?
+  goldColor      String?
+  grossWeight    Float?
+  netWeight      Float
+  pureWeight     Float?
+  size           String?
+  diamondWeight  Float
+  diamondShape   String?
+  diamondType    String?
+  diamondPieces  Int?
+  certified      String?
+  imageFileName  String?
+  ocrImportId    String?               @unique @db.ObjectId
+  ocrImport      OcrImport?            @relation(fields: [ocrImportId], references: [id])
+  priceMin       Float?
+  priceMax       Float?
+  variationCount Int                   @default(0)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  variations     JewelleryVariation[]
+  calculations   PricingCalculation[]
+
+  @@index([userId])
+  @@index([designNo])
+  @@index([createdAt])
+}
+
+model JewelleryVariation {
+  id               String                    @id @default(auto()) @map("_id") @db.ObjectId
+  productId        String                    @db.ObjectId
+  product          JewelleryProduct          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  metal            String
+  purity           String
+  color            String
+  label            String
+  /// Locked final price at save time
+  finalPrice       Float
+  goldPrice        Float
+  diamondPrice     Float
+  makingCharge     Float
+  otherCharges     Float
+  isManualOverride Boolean                   @default(false)
+  breakdownJson    Json?
+  createdAt        DateTime                  @default(now())
+  calculationItems PricingCalculationItem[]
+
+  @@index([productId])
+  @@unique([productId, metal, purity, color])
+}
+
+/// One pricing run snapshot — rates used at that moment are frozen here
+model PricingCalculation {
+  id                     String                   @id @default(auto()) @map("_id") @db.ObjectId
+  userId                 String                   @db.ObjectId
+  user                   User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId              String                   @db.ObjectId
+  product                JewelleryProduct         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// Snapshot inputs
+  gold24kRate            Float
+  purityPercentagesJson  Json
+  diamondRate            Float
+  diamondDiscountPercent Float
+  diamondType            String?
+  diamondShape           String?
+  makingCharge           Float
+  makingCalcType         ChargeCalcType
+  otherChargesJson       Json
+  netWeight              Float
+  diamondWeight          Float
+  variationCount         Int
+  priceMin               Float
+  priceMax               Float
+  notes                  String?
+  createdAt              DateTime                 @default(now())
+  items                  PricingCalculationItem[]
+
+  @@index([userId])
+  @@index([productId])
+  @@index([createdAt])
+}
+
+model PricingCalculationItem {
+  id                String              @id @default(auto()) @map("_id") @db.ObjectId
+  calculationId     String              @db.ObjectId
+  calculation       PricingCalculation  @relation(fields: [calculationId], references: [id], onDelete: Cascade)
+  variationId       String?             @db.ObjectId
+  variation         JewelleryVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
+  metal             String
+  purity            String
+  color             String
+  label             String
+  goldRatePerGram   Float
+  goldPrice         Float
+  diamondGrossPrice Float
+  diamondDiscount   Float
+  diamondFinalPrice Float
+  makingCharge      Float
+  otherChargesTotal Float
+  subtotal          Float
+  finalPrice        Float
+  isManualOverride  Boolean             @default(false)
+  breakdownJson     Json?
+
+  @@index([calculationId])
+}

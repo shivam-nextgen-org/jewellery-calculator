@@ -1,26 +1,221 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ivory: #faf7f2;
+  --ivory-deep: #f3eee6;
+  --charcoal: #1a1816;
+  --charcoal-muted: #4a4540;
+  --champagne: #b8956c;
+  --champagne-soft: #d4bc9a;
+  --champagne-muted: #e8dcc8;
+  --border-subtle: #e5ddd0;
+  --surface: #ffffff;
+  --surface-elevated: #fffcf8;
+  --danger: #9b3d3d;
+  --success: #3d6b4f;
+
+  --background: var(--ivory);
+  --foreground: var(--charcoal);
+  --card: var(--surface);
+  --card-foreground: var(--charcoal);
+  --popover: var(--surface);
+  --popover-foreground: var(--charcoal);
+  --primary: var(--charcoal);
+  --primary-foreground: var(--ivory);
+  --secondary: var(--ivory-deep);
+  --secondary-foreground: var(--charcoal);
+  --muted: var(--ivory-deep);
+  --muted-foreground: var(--charcoal-muted);
+  --accent: var(--champagne-muted);
+  --accent-foreground: var(--charcoal);
+  --destructive: var(--danger);
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--champagne);
+  --radius: 0.5rem;
+  --font-atelier-body: "DM Sans";
+  --font-atelier-display: Fraunces;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ivory: var(--ivory);
+  --color-ivory-deep: var(--ivory-deep);
+  --color-charcoal: var(--charcoal);
+  --color-charcoal-muted: var(--charcoal-muted);
+  --color-champagne: var(--champagne);
+  --color-champagne-soft: var(--champagne-soft);
+  --color-champagne-muted: var(--champagne-muted);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --font-sans: var(--font-atelier-body), "DM Sans", ui-sans-serif, system-ui,
+    sans-serif;
+  --font-display: var(--font-atelier-display), Fraunces, ui-serif, Georgia,
+    serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(
+        ellipse 80% 50% at 100% -20%,
+        color-mix(in srgb, var(--champagne) 8%, transparent),
+        transparent
+      ),
+      radial-gradient(
+        ellipse 60% 40% at 0% 100%,
+        color-mix(in srgb, var(--champagne) 5%, transparent),
+        transparent
+      );
+    background-attachment: fixed;
+    font-family: var(--font-atelier-body), "DM Sans", ui-sans-serif, system-ui,
+      sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    letter-spacing: -0.01em;
+  }
+
+  /* Display font only where explicitly requested — not all headings */
+  .font-display {
+    font-family: var(--font-atelier-display), Fraunces, ui-serif, Georgia, serif;
+    letter-spacing: -0.02em;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-atelier-body), "DM Sans", ui-sans-serif, system-ui,
+      sans-serif;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Main diamond orbits around the ring band */
+@keyframes atelier-diamond-orbit {
+  from {
+    transform: rotate(0deg) translateY(calc(var(--orbit-r, 14px) * -1))
+      rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateY(calc(var(--orbit-r, 14px) * -1))
+      rotate(-360deg);
+  }
 }
+
+@keyframes atelier-diamond-sparkle {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.25);
+  }
+}
+
+.diamond-orbit {
+  transform-origin: center center;
+  animation: atelier-diamond-orbit 2.8s linear infinite;
+  will-change: transform;
+}
+
+.diamond-gem {
+  display: block;
+  animation: atelier-diamond-sparkle 2.8s ease-in-out infinite;
+}
+
+/* Bouncing jewellery gem loader */
+@keyframes atelier-gem-bounce {
+  0% {
+    transform: translateY(0) scale(1, 1) rotate(0deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1);
+  }
+  45% {
+    transform: translateY(calc(var(--gem-size, 44px) * -0.7)) scale(0.94, 1.06)
+      rotate(-8deg);
+    animation-timing-function: cubic-bezier(0.6, 0, 0.7, 1);
+  }
+  55% {
+    transform: translateY(calc(var(--gem-size, 44px) * -0.7)) scale(0.94, 1.06)
+      rotate(8deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.4, 1);
+  }
+  100% {
+    transform: translateY(0) scale(1.08, 0.92) rotate(0deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1);
+  }
+}
+
+@keyframes atelier-gem-shadow {
+  0%,
+  100% {
+    transform: scale(1.1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(0.5);
+    opacity: 0.15;
+  }
+}
+
+.gem-bounce {
+  animation: atelier-gem-bounce 0.95s infinite alternate;
+  will-change: transform;
+  filter: drop-shadow(0 4px 8px rgba(169, 126, 81, 0.28));
+}
+
+.gem-shadow {
+  animation: atelier-gem-shadow 0.95s ease-in-out infinite alternate;
+  filter: blur(2px);
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gem-bounce,
+  .gem-shadow {
+    animation: none;
+  }
+
+}
+
