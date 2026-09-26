@@ -90,6 +90,26 @@ function pricingFromDefaults(defaults: PricingDefaults): PricingFormState {
   };
 }
 
+const BLANK_EXTRACTED: JewelleryExtractedData = {
+  designNo: "",
+  category: "",
+  goldCode: "",
+  goldMetal: "",
+  goldPurity: "",
+  goldColor: "",
+  grossWeight: 0,
+  netWeight: 0,
+  pureWeight: 0,
+  size: "",
+  diamondWeight: 0,
+  diamondShape: "",
+  diamondType: "",
+  diamondPurity: "",
+  diamondPieces: 0,
+  certified: "",
+  certificatePrice: null,
+};
+
 const METAL_OPTIONS: { id: GoldMetalOption; label: string }[] = [
   { id: "gold", label: "Gold" },
   { id: "silver", label: "Silver" },
@@ -153,6 +173,8 @@ export function PricingWorkspace({
   const [step, setStep] = useState<PricingStep>("import");
   const [imageName, setImageName] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  // "ocr" = came from image processing, "manual" = user typing values by hand.
+  const [entryMode, setEntryMode] = useState<"ocr" | "manual">("ocr");
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -218,6 +240,7 @@ export function PricingWorkspace({
       });
       setOverridesByVariationId(draft.overridesByVariationId);
       setImageName(draft.imageName);
+      setEntryMode(draft.imageName ? "ocr" : "manual");
       setOcrImportId(draft.ocrImportId);
       setStep(draft.step === "review" ? "price" : draft.step);
       setDefaults((prev) => ({
@@ -423,6 +446,7 @@ export function PricingWorkspace({
       });
       setOverridesByVariationId({});
 
+      setEntryMode("ocr");
       setStep("verify");
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
@@ -441,6 +465,7 @@ export function PricingWorkspace({
   function handleFilePick(file?: File | null) {
     if (!file) return;
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setEntryMode("ocr");
     setImageFile(file);
     setImageName(file.name);
     setImagePreviewUrl(URL.createObjectURL(file));
@@ -509,6 +534,40 @@ export function PricingWorkspace({
     setOcrImportId(null);
     setOcrMeta(null);
     setOcrError(null);
+  }
+
+  // Manual entry: skip OCR and open the same verify/edit form with a blank
+  // record so the user can type all fields by hand.
+  function handleAddManually() {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setImageFile(null);
+    setImageName(null);
+    setImagePreviewUrl(null);
+    setEntryMode("manual");
+    setExtracted(BLANK_EXTRACTED);
+    setOcrImportId(null);
+    setOcrMeta(null);
+    setOcrError(null);
+    setSelection((prev) => ({
+      ...prev,
+      diamondTypes: prev.diamondTypes.length
+        ? prev.diamondTypes
+        : ["natural", "lab-grown"],
+    }));
+    setOverridesByVariationId({});
+    savePricingDraft({
+      version: 1,
+      extracted: BLANK_EXTRACTED,
+      pricing,
+      selection,
+      purityPercentages: defaults.purityPercentages,
+      overridesByVariationId: {},
+      imageName: null,
+      ocrImportId: null,
+      step: "verify",
+      calculatedAt: null,
+    });
+    setStep("verify");
   }
 
   function updateExtracted<K extends keyof JewelleryExtractedData>(
@@ -602,11 +661,12 @@ export function PricingWorkspace({
           <StepIndicator
             current={step}
             onSelect={(s) => {
+              const hasData = Boolean(imageName) || entryMode === "manual";
               if (s === "import") setStep("import");
-              else if (s === "verify" && imageName) setStep("verify");
+              else if (s === "verify" && hasData) setStep("verify");
               else if (
                 (s === "price" || s === "variations" || s === "review") &&
-                imageName
+                hasData
               ) {
                 setStep(s);
               }
@@ -669,6 +729,15 @@ export function PricingWorkspace({
                   <ClipboardPaste className="h-4 w-4" />
                   Paste image
                 </Button>
+                <Button
+                  type="button"
+                  variant="champagne"
+                  className="h-10 px-4 text-sm"
+                  onClick={handleAddManually}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add manually
+                </Button>
                 {imageName && (
                   <>
                     <Button
@@ -699,7 +768,7 @@ export function PricingWorkspace({
             <div className="grid lg:grid-cols-2">
               <div className="border-b border-border/70 bg-ivory-deep/30 p-5 lg:border-b-0 lg:border-r">
                 <p className="mb-3 text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                  Original image
+                  {entryMode === "manual" ? "Manual entry" : "Original image"}
                 </p>
                 <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border border-border bg-surface">
                   {imagePreviewUrl ? (
@@ -709,6 +778,17 @@ export function PricingWorkspace({
                       alt={imageName ?? "Uploaded jewellery sheet"}
                       className="h-full w-full object-contain"
                     />
+                  ) : entryMode === "manual" ? (
+                    <div className="px-6 text-center">
+                      <Plus className="mx-auto h-10 w-10 text-champagne/70" />
+                      <p className="mt-2 text-sm font-medium text-charcoal">
+                        No image — manual entry
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Fill in the fields on the right, then continue to
+                        pricing. You can switch to image OCR anytime from Import.
+                      </p>
+                    </div>
                   ) : (
                     <div className="text-center">
                       <ImageIcon className="mx-auto h-10 w-10 text-champagne/70" />
@@ -747,10 +827,14 @@ export function PricingWorkspace({
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold tracking-tight">
-                      Verify extracted data
+                      {entryMode === "manual"
+                        ? "Enter jewellery data"
+                        : "Verify extracted data"}
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                      Correct OCR mistakes before pricing.
+                      {entryMode === "manual"
+                        ? "Type the design values before pricing."
+                        : "Correct OCR mistakes before pricing."}
                     </p>
                   </div>
                   <Badge>Editable</Badge>

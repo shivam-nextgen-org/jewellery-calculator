@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node --use-system-ca ./node_modules/next/dist/bin/next dev --webpack",
     "build": "prisma generate && next build",
+    "build:deploy": "node ./scripts/build-deploy.mjs",
     "start": "node --use-system-ca ./node_modules/next/dist/bin/next start",
     "lint": "eslint",
     "db:push": "prisma db push",
