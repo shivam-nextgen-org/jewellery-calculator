@@ -14,7 +14,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { VariationResultsTable } from "@/components/pricing/variation-results";
-import { formatINR, formatWeight } from "@/lib/format";
+import { formatMoney } from "@/lib/fx/format-money";
+import {
+  SUPPORTED_CURRENCIES,
+  isSupportedCurrency,
+  type SupportedCurrency,
+} from "@/lib/fx/currencies";
+import { formatWeight } from "@/lib/format";
 import {
   calculateAllVariations,
   countVariations,
@@ -46,10 +52,43 @@ export function PricingResultsView() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [currency, setCurrency] = useState<SupportedCurrency>("INR");
+  const [fxRates, setFxRates] = useState<Partial<Record<string, number>> | null>(
+    { INR: 1 },
+  );
+  const [fxCapturedAt, setFxCapturedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraft(loadPricingDraft());
+    queueMicrotask(() => setDraft(loadPricingDraft()));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/fx-rates/current");
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          rates?: Partial<Record<string, number>>;
+          capturedAt?: string | null;
+        };
+        if (cancelled) return;
+        const rates = body.rates ?? { INR: 1 };
+        setFxRates(rates);
+        setFxCapturedAt(body.capturedAt ?? null);
+      } catch {
+        // Keep INR identity rates — display still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const hasFxRates = Boolean(
+    fxRates &&
+      Object.keys(fxRates).some((k) => k !== "INR" && Number(fxRates[k]) > 0),
+  );
 
   const sessionInput: PricingSessionInput | null = useMemo(() => {
     if (!draft) return null;
@@ -69,6 +108,7 @@ export function PricingResultsView() {
         (draft.pricing as { diamondRate?: number }).diamondRate ??
         100000,
       diamondRateLabGrown: draft.pricing.diamondRateLabGrown ?? 45000,
+      diamondRateMoissanite: draft.pricing.diamondRateMoissanite ?? 8000,
       diamondDiscountPercent: draft.pricing.diamondDiscount,
       makingCharge: draft.pricing.makingCharge,
       makingCalcType: draft.pricing.makingCalcType,
@@ -254,17 +294,40 @@ export function PricingResultsView() {
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>Currency</span>
+              <select
+                className="h-8 rounded-md border border-input bg-surface-elevated px-2 text-sm text-charcoal"
+                value={currency}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (isSupportedCurrency(next)) setCurrency(next);
+                }}
+                aria-label="Display currency"
+              >
+                {SUPPORTED_CURRENCIES.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {currency !== "INR" && !hasFxRates ? (
+              <span className="text-xs text-destructive">
+                No FX snapshot — Settings → Update Currency Rates
+              </span>
+            ) : null}
             <Badge className="border-champagne/40 bg-champagne-muted/60 px-3 py-1 text-sm font-semibold text-charcoal">
               {variationCount} variation
               {variationCount === 1 ? "" : "s"}
             </Badge>
             <span className="text-sm tabular-nums text-muted-foreground">
-              {formatINR(priceRange.min, {
+              {formatMoney(priceRange.min, currency, fxRates, {
                 maximumFractionDigits: 0,
                 minimumFractionDigits: 0,
               })}{" "}
               –{" "}
-              {formatINR(priceRange.max, {
+              {formatMoney(priceRange.max, currency, fxRates, {
                 maximumFractionDigits: 0,
                 minimumFractionDigits: 0,
               })}
@@ -295,7 +358,7 @@ export function PricingResultsView() {
             />
             <DataRow
               label="Price range"
-              value={`${formatINR(priceRange.min, { maximumFractionDigits: 0, minimumFractionDigits: 0 })} – ${formatINR(priceRange.max, { maximumFractionDigits: 0, minimumFractionDigits: 0 })}`}
+              value={`${formatMoney(priceRange.min, currency, fxRates, { maximumFractionDigits: 0, minimumFractionDigits: 0 })} – ${formatMoney(priceRange.max, currency, fxRates, { maximumFractionDigits: 0, minimumFractionDigits: 0 })}`}
             />
           </div>
           <div className="mt-4 flex flex-wrap gap-2 border-t border-border/60 pt-4">
@@ -353,6 +416,9 @@ export function PricingResultsView() {
             <p className="text-sm text-muted-foreground">
               {variationCount} combination
               {variationCount === 1 ? "" : "s"} calculated
+              {fxCapturedAt && currency !== "INR"
+                ? ` · FX snapshot ${new Date(fxCapturedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
+                : ""}
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -365,6 +431,8 @@ export function PricingResultsView() {
           diamondWeight={extracted.diamondWeight}
           onOverride={setOverride}
           onClearOverride={clearOverride}
+          currency={currency}
+          rates={fxRates}
         />
       </div>
     </div>

@@ -27,7 +27,8 @@ export function validatePricingSession(
   if (!session.diamondTypes || session.diamondTypes.length === 0) {
     issues.push({
       field: "diamondTypes",
-      message: "Select at least one diamond type (Natural and/or Lab Grown).",
+      message:
+        "Select at least one stone type (Natural, Lab Grown, and/or Moissanite).",
     });
   }
 
@@ -86,6 +87,12 @@ export function validatePricingSession(
       issues.push({
         field: "diamondRateLabGrown",
         message: "Lab grown diamond rate cannot be negative.",
+      });
+    }
+    if (d(session.diamondRateMoissanite ?? 0).lt(0)) {
+      issues.push({
+        field: "diamondRateMoissanite",
+        message: "Moissanite rate cannot be negative.",
       });
     }
   } catch {

@@ -23,12 +23,20 @@ export async function middleware(request: NextRequest) {
   const session = await readSessionToken(
     request.cookies.get(SESSION_COOKIE)?.value,
   );
-  const apiKey =
-    request.headers.get("x-api-key")?.trim() ||
-    (request.headers.get("authorization")?.toLowerCase().startsWith("bearer ")
-      ? request.headers.get("authorization")!.slice(7).trim()
-      : "");
+  const authHeader = request.headers.get("authorization");
+  const bearer =
+    authHeader?.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+  const apiKeyHeader = request.headers.get("x-api-key")?.trim() || "";
+  const apiKey = apiKeyHeader || bearer;
   const hasApiKey = apiKey.startsWith("atl_");
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  const isCronPath =
+    pathname === "/api/gold-rate/update" ||
+    pathname === "/api/fx-rates/update";
+  const hasCronSecret =
+    Boolean(cronSecret) && bearer === cronSecret && isCronPath;
 
   if (isPublic(pathname)) {
     if (session && pathname === "/login") {
@@ -36,6 +44,10 @@ export async function middleware(request: NextRequest) {
         session.role === "SUPER_ADMIN" ? "/admin" : "/dashboard";
       return NextResponse.redirect(new URL(dest, request.url));
     }
+    return NextResponse.next();
+  }
+
+  if (!session && hasCronSecret && isCronPath) {
     return NextResponse.next();
   }
 

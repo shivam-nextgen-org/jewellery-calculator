@@ -6,11 +6,32 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatINR, formatWeight } from "@/lib/format";
+import { formatMoney } from "@/lib/fx/format-money";
+import type { SupportedCurrency } from "@/lib/fx/currencies";
+import { formatWeight } from "@/lib/format";
 import type { PricedVariation, VariationOverrides } from "@/lib/pricing-engine";
 import { cn } from "@/lib/utils";
 
-function BreakdownBlock({ variation }: { variation: PricedVariation }) {
+type MoneyFmt = {
+  currency: SupportedCurrency;
+  rates: Partial<Record<string, number>> | null;
+};
+
+function money(
+  value: number | string,
+  fmt: MoneyFmt,
+  options?: { maximumFractionDigits?: number; minimumFractionDigits?: number },
+) {
+  return formatMoney(value, fmt.currency, fmt.rates, options);
+}
+
+function BreakdownBlock({
+  variation,
+  fmt,
+}: {
+  variation: PricedVariation;
+  fmt: MoneyFmt;
+}) {
   const c = variation.calculation;
   const b = c.breakdown;
 
@@ -22,7 +43,9 @@ function BreakdownBlock({ variation }: { variation: PricedVariation }) {
             Gold
           </p>
           <p className="mt-1 text-muted-foreground">{b.goldFormula}</p>
-          <p className="font-medium tabular-nums">= {formatINR(c.goldPrice)}</p>
+          <p className="font-medium tabular-nums">
+            = {money(c.goldPrice, fmt)}
+          </p>
         </div>
         <div>
           <p className="text-xs uppercase tracking-[0.06em] text-champagne">
@@ -30,7 +53,7 @@ function BreakdownBlock({ variation }: { variation: PricedVariation }) {
           </p>
           <p className="mt-1 text-muted-foreground">{b.diamondGrossFormula}</p>
           <p className="font-medium tabular-nums">
-            = {formatINR(c.diamondGrossPrice)}
+            = {money(c.diamondGrossPrice, fmt)}
           </p>
           <p className="mt-2 text-muted-foreground">
             Discount {b.diamondDiscountPercent}%
@@ -39,10 +62,10 @@ function BreakdownBlock({ variation }: { variation: PricedVariation }) {
             )}
           </p>
           <p className="tabular-nums text-charcoal-muted">
-            −{formatINR(c.diamondDiscountAmount)}
+            −{money(c.diamondDiscountAmount, fmt)}
           </p>
           <p className="mt-1 font-medium tabular-nums">
-            Final {formatINR(c.diamondFinalPrice)}
+            Final {money(c.diamondFinalPrice, fmt)}
           </p>
         </div>
         <div>
@@ -54,7 +77,7 @@ function BreakdownBlock({ variation }: { variation: PricedVariation }) {
           </p>
           <p className="mt-1 text-muted-foreground">{b.makingFormula}</p>
           <p className="font-medium tabular-nums">
-            = {formatINR(c.makingCharge)}
+            = {money(c.makingCharge, fmt)}
           </p>
           <p className="mt-3 text-xs uppercase tracking-[0.06em] text-champagne">
             Other
@@ -66,13 +89,16 @@ function BreakdownBlock({ variation }: { variation: PricedVariation }) {
             <p className="text-muted-foreground">None</p>
           ) : (
             b.otherLines.map((line) => (
-              <p key={`${line.name}-${line.amount}`} className="text-muted-foreground">
-                {line.name}: {formatINR(line.amount)}
+              <p
+                key={`${line.name}-${line.amount}`}
+                className="text-muted-foreground"
+              >
+                {line.name}: {money(line.amount, fmt)}
               </p>
             ))
           )}
           <p className="font-medium tabular-nums">
-            = {formatINR(c.otherChargesTotal)}
+            = {money(c.otherChargesTotal, fmt)}
           </p>
         </div>
       </div>
@@ -84,7 +110,7 @@ function BreakdownBlock({ variation }: { variation: PricedVariation }) {
           )}
         </p>
         <p className="text-2xl font-semibold tabular-nums tracking-tight">
-          {formatINR(c.finalPrice)}
+          {money(c.finalPrice, fmt)}
         </p>
       </div>
     </div>
@@ -176,13 +202,18 @@ export function VariationResultsTable({
   diamondWeight,
   onOverride,
   onClearOverride,
+  currency = "INR",
+  rates = null,
 }: {
   variations: PricedVariation[];
   netWeight: number;
   diamondWeight: number;
   onOverride: (variationId: string, overrides: VariationOverrides) => void;
   onClearOverride: (variationId: string) => void;
+  currency?: SupportedCurrency;
+  rates?: Partial<Record<string, number>> | null;
 }) {
+  const fmt: MoneyFmt = { currency, rates };
   const [expandedId, setExpandedId] = useState<string | null>(
     variations[0]?.id ?? null,
   );
@@ -304,13 +335,13 @@ export function VariationResultsTable({
                       {formatWeight(netWeight)}
                     </td>
                     <td className={cn("whitespace-nowrap px-3 py-3 text-right tabular-nums group-hover:bg-ivory-deep/25", grid)}>
-                      {formatINR(row.goldRatePerGram, {
+                      {money(row.goldRatePerGram, fmt, {
                         maximumFractionDigits: 0,
                         minimumFractionDigits: 0,
                       })}
                     </td>
                     <td className={cn("whitespace-nowrap px-3 py-3 text-right tabular-nums group-hover:bg-ivory-deep/25", grid)}>
-                      {formatINR(row.calculation.goldPrice)}
+                      {money(row.calculation.goldPrice, fmt)}
                     </td>
                     <td className={cn("whitespace-nowrap px-3 py-3 text-right tabular-nums text-muted-foreground group-hover:bg-ivory-deep/25", grid)}>
                       {formatWeight(diamondWeight, "CT")}
@@ -322,7 +353,7 @@ export function VariationResultsTable({
                         stickyCell,
                       )}
                     >
-                      {formatINR(row.calculation.diamondFinalPrice)}
+                      {money(row.calculation.diamondFinalPrice, fmt)}
                     </td>
                     <td
                       className={cn(
@@ -331,7 +362,7 @@ export function VariationResultsTable({
                         stickyCell,
                       )}
                     >
-                      {formatINR(row.calculation.makingCharge)}
+                      {money(row.calculation.makingCharge, fmt)}
                     </td>
                     <td
                       className={cn(
@@ -340,7 +371,7 @@ export function VariationResultsTable({
                         stickyCell,
                       )}
                     >
-                      {formatINR(row.calculation.otherChargesTotal)}
+                      {money(row.calculation.otherChargesTotal, fmt)}
                     </td>
                     <td
                       className={cn(
@@ -351,7 +382,7 @@ export function VariationResultsTable({
                     >
                       <div className="flex items-center justify-end gap-2">
                         <span className="tabular-nums font-medium">
-                          {formatINR(row.calculation.finalPrice)}
+                          {money(row.calculation.finalPrice, fmt)}
                         </span>
                         <button
                           type="button"
@@ -371,7 +402,7 @@ export function VariationResultsTable({
                   {(open || editing) && (
                     <tr className="border-b border-border/70">
                       <td colSpan={13} className="p-0">
-                        {open && <BreakdownBlock variation={row} />}
+                        {open && <BreakdownBlock variation={row} fmt={fmt} />}
                         {editing && (
                           <OverrideEditor
                             key={`${row.id}-${row.calculation.finalPrice}`}

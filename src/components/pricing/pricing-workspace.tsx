@@ -83,6 +83,7 @@ function pricingFromDefaults(defaults: PricingDefaults): PricingFormState {
     diamondShape: "round",
     diamondRateNatural: defaults.defaultDiamondRateNatural,
     diamondRateLabGrown: defaults.defaultDiamondRateLabGrown,
+    diamondRateMoissanite: defaults.defaultDiamondRateMoissanite,
     diamondDiscount: defaults.defaultDiamondDiscount,
     makingCharge: defaults.defaultMakingCharge,
     makingCalcType: defaults.defaultMakingCalcType,
@@ -430,6 +431,7 @@ export function PricingWorkspace({
       diamondTypes: selection.diamondTypes,
       diamondRateNatural: pricing.diamondRateNatural,
       diamondRateLabGrown: pricing.diamondRateLabGrown,
+      diamondRateMoissanite: pricing.diamondRateMoissanite,
       diamondDiscountPercent: pricing.diamondDiscount,
       makingCharge: pricing.makingCharge,
       makingCalcType: pricing.makingCalcType,
@@ -1340,6 +1342,7 @@ export function PricingWorkspace({
                         [
                           { id: "natural" as const, label: "Natural" },
                           { id: "lab-grown" as const, label: "Lab Grown" },
+                          { id: "moissanite" as const, label: "Moissanite" },
                         ] as const
                       ).map((opt) => (
                         <label
@@ -1363,7 +1366,7 @@ export function PricingWorkspace({
                       ))}
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Both selected = separate price rows with their rates
+                      Each selected type gets its own price rows and rate
                     </p>
                   </div>
                 </div>
@@ -1502,6 +1505,17 @@ export function PricingWorkspace({
                             setPricing((p) => ({
                               ...p,
                               diamondRateLabGrown: n,
+                            }))
+                          }
+                        />
+                      </Field>
+                      <Field label="Moissanite Rate (₹ / CT)">
+                        <NumberInput
+                          value={pricing.diamondRateMoissanite}
+                          onValueChange={(n) =>
+                            setPricing((p) => ({
+                              ...p,
+                              diamondRateMoissanite: n,
                             }))
                           }
                         />

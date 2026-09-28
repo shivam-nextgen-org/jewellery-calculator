@@ -42,6 +42,9 @@ export function parsePricingDefaults(value: unknown): PricingDefaults {
   const labGrown =
     raw.defaultDiamondRateLabGrown ??
     MOCK_PRICING_DEFAULTS.defaultDiamondRateLabGrown;
+  const moissanite =
+    raw.defaultDiamondRateMoissanite ??
+    MOCK_PRICING_DEFAULTS.defaultDiamondRateMoissanite;
 
   return {
     ...MOCK_PRICING_DEFAULTS,
@@ -53,6 +56,11 @@ export function parsePricingDefaults(value: unknown): PricingDefaults {
     defaultDiamondRate: natural,
     defaultDiamondRateNatural: natural,
     defaultDiamondRateLabGrown: labGrown,
+    defaultDiamondRateMoissanite: moissanite,
+    goldRateLastUpdatedAt:
+      raw.goldRateLastUpdatedAt === undefined
+        ? null
+        : raw.goldRateLastUpdatedAt,
   };
 }
 
@@ -107,4 +115,49 @@ export async function setPricingDefaults(
   // expires the cached entry immediately so the next read is fresh.
   revalidateTag(pricingDefaultsTag(userId), { expire: 0 });
   return parsePricingDefaults(defaults);
+}
+
+/**
+ * Patch only gold24kRate (+ optional last-updated) on every existing
+ * pricing_defaults AppSetting. Does not create new docs; does not touch
+ * purity, diamond, or charge fields.
+ */
+export async function patchGold24kRateOnAllDefaults(
+  gold24kRate: number,
+  goldRateLastUpdatedAt: string,
+): Promise<{ updatedCount: number }> {
+  if (!Number.isFinite(gold24kRate) || gold24kRate <= 0) {
+    throw new Error("Refusing to write invalid gold24kRate");
+  }
+
+  const db = await getDb();
+  const rows = await db
+    .collection("AppSetting")
+    .find({ key: PRICING_DEFAULTS_KEY })
+    .toArray();
+
+  let updatedCount = 0;
+  const now = new Date();
+
+  for (const row of rows) {
+    const current = parsePricingDefaults(row.value);
+    const next: PricingDefaults = {
+      ...current,
+      gold24kRate,
+      goldRateLastUpdatedAt,
+    };
+    const userId = String(row.userId);
+    await db.collection("AppSetting").updateOne(
+      { _id: row._id },
+      { $set: { value: next, updatedAt: now } },
+    );
+    try {
+      revalidateTag(pricingDefaultsTag(userId), { expire: 0 });
+    } catch {
+      // Outside a Next request (scripts) — Mongo write still succeeds.
+    }
+    updatedCount += 1;
+  }
+
+  return { updatedCount };
 }

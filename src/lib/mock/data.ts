@@ -41,6 +41,7 @@ export const MOCK_PRICING_DEFAULTS: PricingDefaults = {
   defaultDiamondRate: 100000,
   defaultDiamondRateNatural: 100000,
   defaultDiamondRateLabGrown: 45000,
+  defaultDiamondRateMoissanite: 8000,
   defaultDiamondDiscount: 20,
   defaultMakingCharge: 500,
   defaultMakingCalcType: "per-gram",

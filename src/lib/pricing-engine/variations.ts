@@ -29,6 +29,7 @@ const COLOR_LABELS: Record<GoldColorOption, string> = {
 const DIAMOND_TYPE_LABELS: Record<DiamondTypeOption, string> = {
   natural: "Natural",
   "lab-grown": "Lab Grown",
+  moissanite: "Moissanite",
 };
 
 export function countVariations(
@@ -41,6 +42,17 @@ export function countVariations(
   return metals.length * purities.length * colors.length * dTypes;
 }
 
+function rateForDiamondType(
+  diamondType: DiamondTypeOption,
+  diamondRateNatural: PricingSessionInput["diamondRateNatural"],
+  diamondRateLabGrown: PricingSessionInput["diamondRateLabGrown"],
+  diamondRateMoissanite: PricingSessionInput["diamondRateMoissanite"],
+) {
+  if (diamondType === "lab-grown") return diamondRateLabGrown;
+  if (diamondType === "moissanite") return diamondRateMoissanite;
+  return diamondRateNatural;
+}
+
 export function generateVariationSpecs(
   metals: GoldMetalOption[],
   purities: GoldPurityOption[],
@@ -50,6 +62,7 @@ export function generateVariationSpecs(
   purityPercentages: PricingSessionInput["purityPercentages"],
   diamondRateNatural: PricingSessionInput["diamondRateNatural"],
   diamondRateLabGrown: PricingSessionInput["diamondRateLabGrown"],
+  diamondRateMoissanite: PricingSessionInput["diamondRateMoissanite"] = 0,
 ): VariationSpec[] {
   const specs: VariationSpec[] = [];
   const types =
@@ -61,10 +74,12 @@ export function generateVariationSpecs(
         for (const diamondType of types) {
           const percent = purityPercentages[purity] ?? 0;
           const ratePerGram = calculatePurityRatePerGram(gold24kRate, percent);
-          const diamondRate =
-            diamondType === "lab-grown"
-              ? diamondRateLabGrown
-              : diamondRateNatural;
+          const diamondRate = rateForDiamondType(
+            diamondType,
+            diamondRateNatural,
+            diamondRateLabGrown,
+            diamondRateMoissanite,
+          );
           const colorShort = COLOR_LABELS[color].replace(" Gold", "");
           const diaLabel = DIAMOND_TYPE_LABELS[diamondType];
           specs.push({
@@ -101,6 +116,7 @@ export function calculateAllVariations(
     session.purityPercentages,
     session.diamondRateNatural,
     session.diamondRateLabGrown,
+    session.diamondRateMoissanite ?? 0,
   );
 
   return specs.map((spec) => {

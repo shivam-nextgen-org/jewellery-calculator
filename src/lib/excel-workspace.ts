@@ -26,13 +26,15 @@ export function selectionFromExtractedRow(
 ): VariationSelection {
   const parsed = parseGoldCode(data.goldCode);
   const sheetDia = data.diamondType.toLowerCase();
-  const preferredDia: DiamondTypeOption[] = sheetDia.includes("lab")
-    ? ["lab-grown", "natural"]
-    : sheetDia.includes("natural")
-      ? ["natural", "lab-grown"]
-      : prev.diamondTypes.length
-        ? prev.diamondTypes
-        : ["natural", "lab-grown"];
+  const preferredDia: DiamondTypeOption[] = sheetDia.includes("moissan")
+    ? ["moissanite", "natural", "lab-grown"]
+    : sheetDia.includes("lab")
+      ? ["lab-grown", "natural"]
+      : sheetDia.includes("natural")
+        ? ["natural", "lab-grown"]
+        : prev.diamondTypes.length
+          ? prev.diamondTypes
+          : ["natural", "lab-grown"];
 
   if (parsed.ok) {
     const hints = variationHintsFromGoldCode(parsed);

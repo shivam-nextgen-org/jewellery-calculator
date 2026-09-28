@@ -111,6 +111,7 @@ export interface PricingSessionInput {
   diamondTypes: import("@/types/jewellery").DiamondTypeOption[];
   diamondRateNatural: DecimalInput;
   diamondRateLabGrown: DecimalInput;
+  diamondRateMoissanite: DecimalInput;
   diamondDiscountPercent: DecimalInput;
   makingCharge: DecimalInput;
   makingCalcType: ChargeCalcType;

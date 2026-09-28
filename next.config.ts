@@ -5,7 +5,12 @@ const nextConfig: NextConfig = {
   // Docker / VPS deployment (run with `node server.js`).
   output: "standalone",
   // tesseract.js uses workers / wasm — keep it external to the bundler
-  serverExternalPackages: ["tesseract.js", "@napi-rs/canvas"],
+  serverExternalPackages: [
+    "tesseract.js",
+    "@napi-rs/canvas",
+    "node-cron",
+    "mongodb",
+  ],
   experimental: {
     // Design-sheet photos can be several MB
     serverActions: {

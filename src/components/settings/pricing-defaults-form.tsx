@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -20,6 +20,23 @@ import type { GoldPurityOption, PricingDefaults } from "@/types/jewellery";
 // Purity groups, in a sensible display order.
 const GOLD_PURITIES: GoldPurityOption[] = ["24K", "22K", "18K", "14K", "10K", "9K"];
 const SILVER_PURITIES: GoldPurityOption[] = ["925", "958", "999"];
+
+function formatIstTimestamp(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return (
+    new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date) + " IST"
+  );
+}
 
 function Field({
   label,
@@ -67,15 +84,38 @@ export function PricingDefaultsForm({
   const [form, setForm] = useState<PricingDefaults>(initialDefaults);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [liveMessage, setLiveMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [updatingLive, setUpdatingLive] = useState(false);
+  const [updatingFx, setUpdatingFx] = useState(false);
+  const [fxLastUpdated, setFxLastUpdated] = useState<string | null>(null);
   // Default diamond discount is opt-in — the field only opens when checked.
   const [discountEnabled, setDiscountEnabled] = useState<boolean>(
     () => (initialDefaults.defaultDiamondDiscount ?? 0) > 0,
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/fx-rates/current");
+        if (!res.ok) return;
+        const body = (await res.json()) as { capturedAt?: string | null };
+        if (cancelled) return;
+        setFxLastUpdated(formatIstTimestamp(body.capturedAt));
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function handleSave() {
     setSaving(true);
     setError(null);
+    setLiveMessage(null);
     try {
       const res = await fetch("/api/settings/pricing-defaults", {
         method: "PUT",
@@ -99,11 +139,77 @@ export function PricingDefaultsForm({
     }
   }
 
+  async function handleUpdateFxRates() {
+    setUpdatingFx(true);
+    setError(null);
+    setLiveMessage(null);
+    try {
+      const res = await fetch("/api/fx-rates/update", { method: "POST" });
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        capturedAt?: string;
+      } | null;
+      if (!res.ok) {
+        throw new Error(
+          body?.error ??
+            "Unable to update currency rates. The previous snapshot is still being used.",
+        );
+      }
+      setFxLastUpdated(formatIstTimestamp(body?.capturedAt));
+      setLiveMessage("Currency rates updated.");
+      window.setTimeout(() => setLiveMessage(null), 3000);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to update currency rates. The previous snapshot is still being used.",
+      );
+    } finally {
+      setUpdatingFx(false);
+    }
+  }
+
+  async function handleUpdateFromLiveRate() {
+    setUpdatingLive(true);
+    setError(null);
+    setLiveMessage(null);
+    try {
+      const res = await fetch("/api/gold-rate/update", { method: "POST" });
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        gold24kRate?: number;
+        goldRateLastUpdatedAt?: string;
+      } | null;
+      if (!res.ok || body?.gold24kRate == null) {
+        throw new Error(
+          body?.error ??
+            "Unable to update gold rate. The previous rate is still being used.",
+        );
+      }
+      setForm((prev) => ({
+        ...prev,
+        gold24kRate: body.gold24kRate!,
+        goldRateLastUpdatedAt: body.goldRateLastUpdatedAt ?? null,
+      }));
+      setLiveMessage("Gold rate updated from live market.");
+      window.setTimeout(() => setLiveMessage(null), 3000);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to update gold rate. The previous rate is still being used.",
+      );
+    } finally {
+      setUpdatingLive(false);
+    }
+  }
+
   async function handleReset() {
     setForm(MOCK_PRICING_DEFAULTS);
     setDiscountEnabled((MOCK_PRICING_DEFAULTS.defaultDiamondDiscount ?? 0) > 0);
     setSaving(true);
     setError(null);
+    setLiveMessage(null);
     try {
       const res = await fetch("/api/settings/pricing-defaults", {
         method: "PUT",
@@ -122,9 +228,21 @@ export function PricingDefaultsForm({
     }
   }
 
+  const lastUpdatedLabel = formatIstTimestamp(form.goldRateLastUpdatedAt);
+
   return (
     <div className="space-y-5">
-      {saving ? <PageLoader label="Saving settings…" /> : null}
+      {saving || updatingLive || updatingFx ? (
+        <PageLoader
+          label={
+            updatingFx
+              ? "Updating currency rates…"
+              : updatingLive
+                ? "Updating gold rate…"
+                : "Saving settings…"
+          }
+        />
+      ) : null}
 
       {error && (
         <div
@@ -132,6 +250,14 @@ export function PricingDefaultsForm({
           role="alert"
         >
           {error}
+        </div>
+      )}
+      {liveMessage && (
+        <div
+          className="rounded-lg border border-[var(--success)]/30 bg-[var(--success)]/5 px-3 py-2 text-sm text-[var(--success)]"
+          role="status"
+        >
+          {liveMessage}
         </div>
       )}
 
@@ -155,6 +281,27 @@ export function PricingDefaultsForm({
                 setForm((d) => ({ ...d, gold24kRate: n }))
               }
             />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={updatingLive || saving}
+                onClick={() => void handleUpdateFromLiveRate()}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Update from Live Rate
+              </Button>
+              {lastUpdatedLabel ? (
+                <p className="text-xs text-muted-foreground">
+                  Last updated: {lastUpdatedLabel}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Auto-updates daily at 11:15 AM IST
+                </p>
+              )}
+            </div>
           </Field>
 
           <div>
@@ -219,8 +366,8 @@ export function PricingDefaultsForm({
             Diamond defaults
           </CardTitle>
           <CardDescription>
-            Separate rates for Natural and Lab Grown — used in variation
-            pricing.
+            Separate rates for Natural, Lab Grown, and Moissanite — used in
+            variation pricing.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -241,6 +388,14 @@ export function PricingDefaultsForm({
               value={form.defaultDiamondRateLabGrown}
               onValueChange={(n) =>
                 setForm((d) => ({ ...d, defaultDiamondRateLabGrown: n }))
+              }
+            />
+          </Field>
+          <Field label="Moissanite Rate (₹ / CT)">
+            <NumberInput
+              value={form.defaultDiamondRateMoissanite}
+              onValueChange={(n) =>
+                setForm((d) => ({ ...d, defaultDiamondRateMoissanite: n }))
               }
             />
           </Field>
@@ -329,6 +484,39 @@ export function PricingDefaultsForm({
               <option value="percentage">Percentage</option>
             </select>
           </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-sans text-lg font-semibold tracking-tight">
+            Currency rates
+          </CardTitle>
+          <CardDescription>
+            Daily FX snapshot for results display (INR stays the calculation
+            currency). Auto-updates at 12:00 AM IST.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {fxLastUpdated ? (
+            <p className="text-sm text-muted-foreground">
+              Last updated: {fxLastUpdated}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No FX snapshot yet — click update or wait for midnight IST.
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={updatingFx || saving || updatingLive}
+            onClick={() => void handleUpdateFxRates()}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Update Currency Rates
+          </Button>
         </CardContent>
       </Card>
 

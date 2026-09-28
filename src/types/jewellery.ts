@@ -13,7 +13,7 @@ export type GoldPurityOption =
   | "958";
 export type GoldColorOption = "yellow" | "white" | "rose";
 
-export type DiamondTypeOption = "natural" | "lab-grown";
+export type DiamondTypeOption = "natural" | "lab-grown" | "moissanite";
 export type DiamondShapeOption =
   | "round"
   | "princess"
@@ -65,11 +65,15 @@ export interface PricingDefaults {
   defaultDiamondRate: number;
   defaultDiamondRateNatural: number;
   defaultDiamondRateLabGrown: number;
+  /** Moissanite rate (₹ / CT) — same pattern as natural / lab-grown. */
+  defaultDiamondRateMoissanite: number;
   defaultDiamondDiscount: number;
   defaultMakingCharge: number;
   defaultMakingCalcType: ChargeCalcType;
   defaultOtherCharge: number;
   defaultOtherCalcType: ChargeCalcType;
+  /** ISO timestamp when gold24kRate was last refreshed from live market (optional). */
+  goldRateLastUpdatedAt?: string | null;
 }
 
 export interface VariationSelection {
@@ -84,6 +88,7 @@ export interface PricingFormState {
   diamondShape: DiamondShapeOption;
   diamondRateNatural: number;
   diamondRateLabGrown: number;
+  diamondRateMoissanite: number;
   diamondDiscount: number;
   makingCharge: number;
   makingCalcType: ChargeCalcType;

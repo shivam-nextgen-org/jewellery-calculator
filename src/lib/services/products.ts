@@ -46,6 +46,7 @@ function buildSession(payload: SaveProductPayload): PricingSessionInput {
     diamondTypes: payload.selection.diamondTypes,
     diamondRateNatural: payload.pricing.diamondRateNatural,
     diamondRateLabGrown: payload.pricing.diamondRateLabGrown,
+    diamondRateMoissanite: payload.pricing.diamondRateMoissanite ?? 0,
     diamondDiscountPercent: payload.pricing.diamondDiscount,
     makingCharge: payload.pricing.makingCharge,
     makingCalcType: payload.pricing.makingCalcType,
