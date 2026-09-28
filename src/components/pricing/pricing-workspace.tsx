@@ -1,14 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ClipboardPaste,
-  ImageIcon,
+  Download,
+  FileSpreadsheet,
   Loader2,
   Plus,
-  Settings,
   Trash2,
   Upload,
   X,
@@ -17,9 +15,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -34,18 +29,31 @@ import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { BouncingRing, DiamondRingMark } from "@/components/brand/diamond-ring";
-import { StepIndicator } from "@/components/pricing/step-indicator";
-import { formatINR, formatPercent, formatWeight } from "@/lib/format";
+import { DiamondRingMark } from "@/components/brand/diamond-ring";
 import {
-  parseGoldCode,
-  variationHintsFromGoldCode,
-} from "@/lib/gold-code";
+  ExcelRowsTable,
+  type ExcelTableRow,
+} from "@/components/pricing/excel-rows-table";
+import { StepIndicator } from "@/components/pricing/step-indicator";
+import {
+  EXCEL_ACCEPT,
+  EXCEL_MAX_BYTES,
+  diamondShapeFromExtracted,
+  downloadSampleExcel,
+  parseJewelleryWorkbook,
+  selectionFromExtractedRow,
+  validateJewelleryRow,
+} from "@/lib/excel-workspace";
+import { formatINR, formatPercent, formatWeight } from "@/lib/format";
+import { parseGoldCode } from "@/lib/gold-code";
 import { MOCK_EXTRACTED, MOCK_PRICING_DEFAULTS } from "@/lib/mock/data";
 import {
   clearPricingDraft,
+  draftHasActiveSession,
   loadPricingDraft,
   savePricingDraft,
+  type PricingEntryMode,
+  type StoredExcelRow,
 } from "@/lib/pricing-draft";
 import {
   buildPurityRateTable,
@@ -57,7 +65,6 @@ import {
 } from "@/lib/pricing-engine";
 import type {
   ChargeCalcType,
-  DiamondTypeOption,
   GoldColorOption,
   GoldMetalOption,
   GoldPurityOption,
@@ -164,29 +171,52 @@ function toggleInArray<T>(list: T[], value: T): T[] {
     : [...list, value];
 }
 
+const WIZARD_STEPS: PricingStep[] = [
+  "import",
+  "verify",
+  "price",
+  "variations",
+  "review",
+];
+
+function isWizardStep(value: string | null | undefined): value is PricingStep {
+  return Boolean(value && WIZARD_STEPS.includes(value as PricingStep));
+}
+
+function readStepFromUrl(): PricingStep | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("step");
+  return isWizardStep(raw) ? raw : null;
+}
+
+function writeStepToUrl(next: PricingStep, mode: "push" | "replace") {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.pathname = "/pricing";
+  url.searchParams.set("step", next);
+  const href = `${url.pathname}?${url.searchParams.toString()}`;
+  if (mode === "replace") {
+    window.history.replaceState({ pricingStep: next }, "", href);
+  } else {
+    window.history.pushState({ pricingStep: next }, "", href);
+  }
+}
+
 export function PricingWorkspace({
   initialDefaults,
 }: {
   initialDefaults?: PricingDefaults;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<PricingStep>("import");
-  const [imageName, setImageName] = useState<string | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  // "ocr" = came from image processing, "manual" = user typing values by hand.
-  const [entryMode, setEntryMode] = useState<"ocr" | "manual">("ocr");
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [step, setStepState] = useState<PricingStep>("import");
+  const stepRef = useRef<PricingStep>("import");
+  const hydratedRef = useRef(false);
+  const [entryMode, setEntryMode] = useState<PricingEntryMode>("excel");
+  const [excelFileName, setExcelFileName] = useState<string | null>(null);
+  const [excelRows, setExcelRows] = useState<ExcelTableRow[]>([]);
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [ocrError, setOcrError] = useState<string | null>(null);
-  const [ocrImportId, setOcrImportId] = useState<string | null>(null);
-  const [ocrMeta, setOcrMeta] = useState<{
-    provider: string;
-    confidence: number;
-    warnings: string[];
-    goldCodeParsed: boolean;
-    unknownGoldCode: boolean;
-    rawText?: string;
-  } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [extracted, setExtracted] =
     useState<JewelleryExtractedData>(MOCK_EXTRACTED);
   const [defaults, setDefaults] = useState<PricingDefaults>(
@@ -216,47 +246,177 @@ export function PricingWorkspace({
 
   const [isCalculating, setIsCalculating] = useState(false);
 
-  // Start fresh when entering /pricing normally (e.g. via the nav tab). But if
-  // the user came back from the results page to edit (draft.resume === true),
-  // restore their work and land on the step they chose. The resume flag is
-  // consumed (cleared) so a later plain visit still starts fresh.
-  useEffect(() => {
-    const draft = loadPricingDraft();
-    if (!draft?.resume) {
-      clearPricingDraft();
-      return;
+  function setStep(next: PricingStep, historyMode: "push" | "replace" | "none" = "push") {
+    stepRef.current = next;
+    setStepState(next);
+    if (historyMode !== "none") {
+      writeStepToUrl(next, historyMode);
     }
-    // Restore asynchronously so we don't call setState synchronously in the
-    // effect body (avoids cascading-render warnings).
-    queueMicrotask(() => {
-      setExtracted(draft.extracted);
-      setPricing(draft.pricing);
-      setDiscountEnabled((draft.pricing.diamondDiscount ?? 0) > 0);
-      setSelection({
-        ...draft.selection,
-        diamondTypes: draft.selection.diamondTypes?.length
-          ? draft.selection.diamondTypes
-          : ["natural", "lab-grown"],
-      });
-      setOverridesByVariationId(draft.overridesByVariationId);
-      setImageName(draft.imageName);
-      setEntryMode(draft.imageName ? "ocr" : "manual");
-      setOcrImportId(draft.ocrImportId);
-      setStep(draft.step === "review" ? "price" : draft.step);
-      setDefaults((prev) => ({
-        ...prev,
-        purityPercentages: draft.purityPercentages,
-      }));
-      // Consume the resume flag so a future plain visit starts fresh.
-      savePricingDraft({ ...draft, resume: false });
-    });
-  }, []);
+  }
 
-  useEffect(() => {
-    return () => {
-      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+  function toStoredRows(rows: ExcelTableRow[]): StoredExcelRow[] {
+    return rows.map((r) => ({ sheetRow: r.sheetRow, data: r.data }));
+  }
+
+  function buildDraft(overrides?: {
+    step?: PricingStep;
+    calculatedAt?: string | null;
+    extracted?: JewelleryExtractedData;
+    selection?: VariationSelection;
+    overridesByVariationId?: Record<string, VariationOverrides>;
+    entryMode?: PricingEntryMode;
+    excelFileName?: string | null;
+    excelRows?: ExcelTableRow[];
+    selectedRowIndex?: number | null;
+    resume?: boolean;
+  }) {
+    const rows = overrides?.excelRows ?? excelRows;
+    return {
+      version: 2 as const,
+      extracted: overrides?.extracted ?? extracted,
+      pricing,
+      selection: overrides?.selection ?? selection,
+      purityPercentages: defaults.purityPercentages,
+      overridesByVariationId:
+        overrides?.overridesByVariationId ?? overridesByVariationId,
+      imageName: null,
+      ocrImportId: null,
+      step: overrides?.step ?? step,
+      calculatedAt:
+        overrides?.calculatedAt === undefined ? null : overrides.calculatedAt,
+      entryMode: overrides?.entryMode ?? entryMode,
+      excelFileName: overrides?.excelFileName ?? excelFileName,
+      excelRows: toStoredRows(rows),
+      selectedRowIndex:
+        overrides?.selectedRowIndex === undefined
+          ? selectedRowIndex
+          : overrides.selectedRowIndex,
+      resume: overrides?.resume,
     };
-  }, [imagePreviewUrl]);
+  }
+
+  function restoreFromDraft(
+    draft: NonNullable<ReturnType<typeof loadPricingDraft>>,
+  ) {
+    setExtracted(draft.extracted);
+    setPricing(draft.pricing);
+    setDiscountEnabled((draft.pricing.diamondDiscount ?? 0) > 0);
+    setSelection({
+      ...draft.selection,
+      diamondTypes: draft.selection.diamondTypes?.length
+        ? draft.selection.diamondTypes
+        : ["natural", "lab-grown"],
+    });
+    setOverridesByVariationId(draft.overridesByVariationId);
+    const mode: PricingEntryMode =
+      draft.entryMode ??
+      (draft.excelRows?.length
+        ? "excel"
+        : draft.imageName
+          ? "excel"
+          : "manual");
+    setEntryMode(mode);
+    setExcelFileName(draft.excelFileName ?? draft.imageName ?? null);
+
+    const stored = (draft.excelRows ?? []) as StoredExcelRow[] | JewelleryExtractedData[];
+    const normalized: ExcelTableRow[] = stored.map((row, i) => {
+      if (row && typeof row === "object" && "data" in row) {
+        const s = row as StoredExcelRow;
+        return {
+          sheetRow: s.sheetRow,
+          data: s.data,
+          validation: validateJewelleryRow(s.data),
+        };
+      }
+      const data = row as JewelleryExtractedData;
+      return {
+        sheetRow: i + 2,
+        data,
+        validation: validateJewelleryRow(data),
+      };
+    });
+
+    if (normalized.length) {
+      setExcelRows(normalized);
+      const byDesign = normalized.findIndex(
+        (r) => r.data.designNo === draft.extracted.designNo,
+      );
+      const idx =
+        typeof draft.selectedRowIndex === "number" &&
+        draft.selectedRowIndex >= 0 &&
+        draft.selectedRowIndex < normalized.length
+          ? draft.selectedRowIndex
+          : byDesign >= 0
+            ? byDesign
+            : 0;
+      setSelectedRowIndex(idx);
+    } else {
+      setExcelRows([]);
+      setSelectedRowIndex(null);
+    }
+
+    // After calculate (step review), Excel sessions return to Verify so the
+    // user can pick another row. Explicit Edit Rates sets step to price.
+    let nextStep: PricingStep = draft.step;
+    if (draft.step === "review") {
+      nextStep =
+        mode === "excel" && normalized.length > 0 ? "verify" : "price";
+    }
+    setStep(nextStep, "replace");
+    setDefaults((prev) => ({
+      ...prev,
+      purityPercentages: draft.purityPercentages,
+    }));
+  }
+
+  // Restore an in-progress Excel/manual session (including browser Back from
+  // results). Only clear when there is no active session.
+  // Also keep wizard steps in the browser history (?step=) so Back stays
+  // inside Import → Verify → Price instead of jumping to Settings.
+  useEffect(() => {
+    queueMicrotask(() => {
+      const draft = loadPricingDraft();
+      if (!draftHasActiveSession(draft)) {
+        clearPricingDraft();
+        const urlStep = readStepFromUrl();
+        setStep(urlStep ?? "import", "replace");
+      } else if (draft) {
+        restoreFromDraft(draft);
+        const urlStep = readStepFromUrl();
+        // Prefer explicit URL step when valid; otherwise draft step already applied.
+        if (urlStep && urlStep !== stepRef.current) {
+          setStep(urlStep, "replace");
+        } else {
+          writeStepToUrl(stepRef.current, "replace");
+        }
+        savePricingDraft({ ...draft, resume: false, step: stepRef.current });
+      } else {
+        setStep("import", "replace");
+      }
+      hydratedRef.current = true;
+    });
+
+    function onPopState() {
+      const next = readStepFromUrl() ?? "import";
+      const draft = loadPricingDraft();
+      const hasData = draftHasActiveSession(draft);
+
+      if (next === "import" || hasData) {
+        stepRef.current = next;
+        setStepState(next);
+        if (draft) {
+          savePricingDraft({ ...draft, step: next, resume: false });
+        }
+      } else {
+        // Block jumping to verify/price without data — snap back to import.
+        setStep("import", "replace");
+      }
+    }
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only hydrate + history
+  }, []);
 
   const sessionInput: PricingSessionInput = useMemo(
     () => ({
@@ -314,7 +474,7 @@ export function PricingWorkspace({
   async function runCalculate(options?: { clearOverrides?: boolean }) {
     if (validationIssues.length > 0) return;
     setIsCalculating(true);
-    setStep("review");
+    setStep("review", "none");
 
     const nextOverrides = options?.clearOverrides
       ? {}
@@ -323,18 +483,13 @@ export function PricingWorkspace({
       setOverridesByVariationId({});
     }
 
-    savePricingDraft({
-      version: 1,
-      extracted,
-      pricing,
-      selection,
-      purityPercentages: defaults.purityPercentages,
-      overridesByVariationId: nextOverrides,
-      imageName,
-      ocrImportId,
-      step: "review",
-      calculatedAt: new Date().toISOString(),
-    });
+    savePricingDraft(
+      buildDraft({
+        step: "review",
+        calculatedAt: new Date().toISOString(),
+        overridesByVariationId: nextOverrides,
+      }),
+    );
 
     await new Promise((r) => window.setTimeout(r, 700));
     router.push("/pricing/results");
@@ -353,201 +508,168 @@ export function PricingWorkspace({
     void runCalculate({ clearOverrides: true });
   }
 
-  async function handleProcessImage() {
-    if (!imageFile) {
-      setOcrError("Please browse or drop an image file first.");
+  function applyRowSelection(
+    index: number,
+    rows: ExcelTableRow[],
+    options?: { clearCalc?: boolean },
+  ) {
+    const row = rows[index];
+    if (!row || !row.validation.valid) return;
+
+    const nextSelection = selectionFromExtractedRow(row.data, selection);
+    const nextPricing: PricingFormState = {
+      ...pricing,
+      diamondShape: diamondShapeFromExtracted(row.data, pricing.diamondShape),
+    };
+    const nextOverrides =
+      options?.clearCalc === false ? overridesByVariationId : {};
+
+    setExtracted(row.data);
+    setSelectedRowIndex(index);
+    setSelection(nextSelection);
+    setPricing(nextPricing);
+    if (options?.clearCalc !== false) {
+      setOverridesByVariationId({});
+    }
+
+    savePricingDraft({
+      version: 2,
+      extracted: row.data,
+      pricing: nextPricing,
+      selection: nextSelection,
+      purityPercentages: defaults.purityPercentages,
+      overridesByVariationId: nextOverrides,
+      imageName: null,
+      ocrImportId: null,
+      step: "verify",
+      calculatedAt: null,
+      entryMode: "excel",
+      excelFileName,
+      excelRows: toStoredRows(rows),
+      selectedRowIndex: index,
+    });
+  }
+
+  async function handleExcelPick(file?: File | null) {
+    if (!file) return;
+
+    const lower = file.name.toLowerCase();
+    if (
+      !lower.endsWith(".xlsx") &&
+      !lower.endsWith(".xls") &&
+      !lower.endsWith(".csv")
+    ) {
+      setImportError("Unsupported file type. Upload .xlsx, .xls, or .csv.");
       return;
     }
+    if (file.size > EXCEL_MAX_BYTES) {
+      setImportError("File is too large. Maximum size is 5 MB.");
+      return;
+    }
+
     setIsProcessing(true);
-    setOcrError(null);
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 100_000);
+    setImportError(null);
+
     try {
-      const form = new FormData();
-      form.append("file", imageFile);
+      const buffer = await file.arrayBuffer();
+      const parsed = parseJewelleryWorkbook(buffer, { fileName: file.name });
 
-      const res = await fetch("/api/ocr/process", {
-        method: "POST",
-        body: form,
-        signal: controller.signal,
-      });
-      const body = (await res.json()) as {
-        error?: string;
-        importId?: string;
-        data?: JewelleryExtractedData;
-        meta?: {
-          provider: string;
-          confidence: number;
-          warnings: string[];
-          goldCodeParsed: boolean;
-          unknownGoldCode: boolean;
-        };
-      };
-
-      if (!res.ok || !body.data) {
-        throw new Error(body.error ?? "OCR failed");
+      if (parsed.fileErrors.length && parsed.rows.length === 0) {
+        setImportError(parsed.fileErrors.join(" "));
+        return;
       }
 
-      setExtracted(body.data);
-      setOcrImportId(body.importId ?? null);
-      setOcrMeta(body.meta ?? null);
-
-      // Pre-select variations from parsed gold code (user can expand later)
-      const parsed = parseGoldCode(body.data.goldCode);
-      let nextSelection: VariationSelection = {
-        ...selection,
-        diamondTypes: ["natural", "lab-grown"],
-      };
-      if (parsed.ok) {
-        const hints = variationHintsFromGoldCode(parsed);
-        const sheetDia = body.data.diamondType.toLowerCase();
-        const preferredDia: DiamondTypeOption[] = sheetDia.includes("lab")
-          ? ["lab-grown", "natural"]
-          : sheetDia.includes("natural")
-            ? ["natural", "lab-grown"]
-            : ["natural", "lab-grown"];
-        nextSelection = {
-          metals: hints.metals,
-          purities: Array.from(
-            new Set([...hints.purities, "14K", "18K"]),
-          ) as GoldPurityOption[],
-          colors: ["yellow", "white", "rose"],
-          diamondTypes: preferredDia,
-        };
-        setSelection(nextSelection);
-      } else {
-        setSelection(nextSelection);
-      }
-
-      // Shape hint from sheet
-      const shapeLower = body.data.diamondShape.toLowerCase();
-      setPricing((p) => ({
-        ...p,
-        diamondShape: shapeLower.includes("pear")
-          ? "pear"
-          : shapeLower.includes("pri") || shapeLower.includes("princess")
-            ? "princess"
-            : shapeLower.includes("oval")
-              ? "oval"
-              : "round",
+      const tableRows: ExcelTableRow[] = parsed.rows.map((r) => ({
+        sheetRow: r.sheetRow,
+        data: r.data,
+        validation: r.validation,
       }));
 
+      const firstValid = tableRows.findIndex((r) => r.validation.valid);
+      if (firstValid < 0) {
+        setImportError(
+          parsed.fileErrors.join(" ") ||
+            "No valid rows found. Check Design No and numeric columns.",
+        );
+        setExcelRows(tableRows);
+        setExcelFileName(file.name);
+        setEntryMode("excel");
+        return;
+      }
+
+      setExcelRows(tableRows);
+      setExcelFileName(file.name);
+      setEntryMode("excel");
+      setOverridesByVariationId({});
+
+      const row = tableRows[firstValid];
+      const nextSelection = selectionFromExtractedRow(row.data, selection);
+      const nextPricing: PricingFormState = {
+        ...pricing,
+        diamondShape: diamondShapeFromExtracted(row.data, pricing.diamondShape),
+      };
+      setExtracted(row.data);
+      setSelectedRowIndex(firstValid);
+      setSelection(nextSelection);
+      setPricing(nextPricing);
+
+      const warn =
+        parsed.fileErrors.length > 0
+          ? parsed.fileErrors.join(" ")
+          : parsed.meta.validRowCount < parsed.meta.totalDataRows
+            ? `${parsed.meta.validRowCount} of ${parsed.meta.totalDataRows} rows are valid — invalid rows are disabled.`
+            : null;
+      setImportError(warn);
+
       savePricingDraft({
-        version: 1,
-        extracted: body.data,
-        pricing,
+        version: 2,
+        extracted: row.data,
+        pricing: nextPricing,
         selection: nextSelection,
         purityPercentages: defaults.purityPercentages,
         overridesByVariationId: {},
-        imageName,
-        ocrImportId: body.importId ?? null,
+        imageName: null,
+        ocrImportId: null,
         step: "verify",
         calculatedAt: null,
+        entryMode: "excel",
+        excelFileName: file.name,
+        excelRows: toStoredRows(tableRows),
+        selectedRowIndex: firstValid,
       });
-      setOverridesByVariationId({});
-
-      setEntryMode("ocr");
       setStep("verify");
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        setOcrError(
-          "OCR timed out. Check tessdata (npm run ocr:tessdata) and try a smaller image.",
-        );
-      } else {
-        setOcrError(err instanceof Error ? err.message : "OCR failed");
-      }
+      setImportError(
+        err instanceof Error ? err.message : "Failed to read the spreadsheet.",
+      );
     } finally {
-      window.clearTimeout(timeout);
       setIsProcessing(false);
     }
   }
 
-  function handleFilePick(file?: File | null) {
-    if (!file) return;
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    setEntryMode("ocr");
-    setImageFile(file);
-    setImageName(file.name);
-    setImagePreviewUrl(URL.createObjectURL(file));
-    setOcrError(null);
+  function handleRemoveExcel() {
+    setExcelFileName(null);
+    setExcelRows([]);
+    setSelectedRowIndex(null);
+    setImportError(null);
+    setEntryMode("excel");
+    clearPricingDraft();
+    setStep("import");
   }
 
-  // Button fallback: read an image from the clipboard on demand.
-  async function handlePasteFromClipboard() {
-    try {
-      if (!navigator.clipboard?.read) {
-        setOcrError("Paste isn't supported here — use Ctrl+V or Browse.");
-        return;
-      }
-      const items = await navigator.clipboard.read();
-      for (const item of items) {
-        const type = item.types.find((t) => t.startsWith("image/"));
-        if (type) {
-          const blob = await item.getType(type);
-          const ext = type.split("/")[1] || "png";
-          handleFilePick(
-            new File([blob], `pasted-${Date.now()}.${ext}`, { type }),
-          );
-          return;
-        }
-      }
-      setOcrError("No image found in the clipboard.");
-    } catch {
-      setOcrError(
-        "Couldn't read the clipboard. Try Ctrl+V or Browse instead.",
-      );
-    }
+  function handleStartOver() {
+    handleRemoveExcel();
+    setExtracted(MOCK_EXTRACTED);
+    setOverridesByVariationId({});
   }
 
-  // Paste an image straight from the clipboard (e.g. after taking a
-  // screenshot). Only active on the import step.
-  useEffect(() => {
-    if (step !== "import") return;
-    function onPaste(e: ClipboardEvent) {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith("image/")) {
-          const blob = item.getAsFile();
-          if (blob) {
-            e.preventDefault();
-            const ext = item.type.split("/")[1] || "png";
-            const named = new File([blob], `pasted-${Date.now()}.${ext}`, {
-              type: item.type,
-            });
-            handleFilePick(named);
-          }
-          return;
-        }
-      }
-    }
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, imagePreviewUrl]);
-
-  function handleRemoveImage() {
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    setImageFile(null);
-    setImageName(null);
-    setImagePreviewUrl(null);
-    setOcrImportId(null);
-    setOcrMeta(null);
-    setOcrError(null);
-  }
-
-  // Manual entry: skip OCR and open the same verify/edit form with a blank
-  // record so the user can type all fields by hand.
   function handleAddManually() {
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    setImageFile(null);
-    setImageName(null);
-    setImagePreviewUrl(null);
+    setExcelFileName(null);
+    setExcelRows([]);
+    setSelectedRowIndex(null);
     setEntryMode("manual");
     setExtracted(BLANK_EXTRACTED);
-    setOcrImportId(null);
-    setOcrMeta(null);
-    setOcrError(null);
+    setImportError(null);
     setSelection((prev) => ({
       ...prev,
       diamondTypes: prev.diamondTypes.length
@@ -555,18 +677,18 @@ export function PricingWorkspace({
         : ["natural", "lab-grown"],
     }));
     setOverridesByVariationId({});
-    savePricingDraft({
-      version: 1,
-      extracted: BLANK_EXTRACTED,
-      pricing,
-      selection,
-      purityPercentages: defaults.purityPercentages,
-      overridesByVariationId: {},
-      imageName: null,
-      ocrImportId: null,
-      step: "verify",
-      calculatedAt: null,
-    });
+    savePricingDraft(
+      buildDraft({
+        step: "verify",
+        calculatedAt: null,
+        extracted: BLANK_EXTRACTED,
+        entryMode: "manual",
+        excelFileName: null,
+        excelRows: [],
+        selectedRowIndex: null,
+        overridesByVariationId: {},
+      }),
+    );
     setStep("verify");
   }
 
@@ -574,7 +696,38 @@ export function PricingWorkspace({
     key: K,
     value: JewelleryExtractedData[K],
   ) {
-    setExtracted((prev) => ({ ...prev, [key]: value }));
+    const next = { ...extracted, [key]: value };
+    setExtracted(next);
+    if (entryMode === "excel" && selectedRowIndex != null) {
+      setExcelRows((rows) =>
+        rows.map((row, i) =>
+          i === selectedRowIndex
+            ? {
+                ...row,
+                data: next,
+                validation: validateJewelleryRow(next),
+              }
+            : row,
+        ),
+      );
+    }
+  }
+
+  function setExtractedSynced(next: JewelleryExtractedData) {
+    setExtracted(next);
+    if (entryMode === "excel" && selectedRowIndex != null) {
+      setExcelRows((rows) =>
+        rows.map((row, i) =>
+          i === selectedRowIndex
+            ? {
+                ...row,
+                data: next,
+                validation: validateJewelleryRow(next),
+              }
+            : row,
+        ),
+      );
+    }
   }
 
   function addCharge() {
@@ -615,10 +768,13 @@ export function PricingWorkspace({
     <div className="space-y-6">
       {isProcessing ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/40 backdrop-blur-md"
           suppressHydrationWarning
         >
-          <BouncingRing size={140} label="Reading image" />
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-surface px-8 py-6 shadow-sm">
+            <Loader2 className="h-8 w-8 animate-spin text-champagne" />
+            <p className="text-sm font-medium text-charcoal">Reading spreadsheet…</p>
+          </div>
         </div>
       ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -635,12 +791,6 @@ export function PricingWorkspace({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/settings">
-              <Settings />
-              Settings
-            </Link>
-          </Button>
           {showPricingLayout && (
             <div className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm">
               <span className="text-muted-foreground">Est. </span>
@@ -661,7 +811,10 @@ export function PricingWorkspace({
           <StepIndicator
             current={step}
             onSelect={(s) => {
-              const hasData = Boolean(imageName) || entryMode === "manual";
+              const hasData =
+                entryMode === "manual" ||
+                excelRows.length > 0 ||
+                Boolean(excelFileName);
               if (s === "import") setStep("import");
               else if (s === "verify" && hasData) setStep("verify");
               else if (
@@ -676,58 +829,110 @@ export function PricingWorkspace({
 
         {step === "import" && (
           <CardContent className="p-5 sm:p-8">
+            {excelRows.length > 0 ? (
+              <div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-champagne/40 bg-champagne-muted/20 px-6 py-12 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-champagne/30 bg-surface text-champagne">
+                  <FileSpreadsheet className="h-6 w-6" />
+                </div>
+                <h2 className="text-2xl font-semibold tracking-tight text-charcoal">
+                  {excelFileName ?? "Spreadsheet loaded"}
+                </h2>
+                <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                  {excelRows.length} row{excelRows.length === 1 ? "" : "s"} ready.
+                  Continue to Verify to pick another design, or replace the file.
+                </p>
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                  <Button
+                    type="button"
+                    variant="champagne"
+                    className="h-10 px-4 text-sm"
+                    onClick={() => {
+                      savePricingDraft(buildDraft({ step: "verify" }));
+                      setStep("verify");
+                    }}
+                  >
+                    Continue to Verify
+                  </Button>
+                  <label>
+                    <input
+                      type="file"
+                      accept={EXCEL_ACCEPT}
+                      className="sr-only"
+                      onChange={(e) => {
+                        void handleExcelPick(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                    <span className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-surface px-4 text-sm font-medium hover:border-champagne/40 hover:bg-ivory-deep/60">
+                      Replace Excel
+                    </span>
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-10 px-4 text-sm"
+                    onClick={handleStartOver}
+                  >
+                    <X />
+                    Start over
+                  </Button>
+                </div>
+              </div>
+            ) : (
             <div
               className={cn(
                 "relative flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-ivory-deep/40 px-6 py-12 text-center transition-colors",
-                imageName && "border-champagne/40 bg-champagne-muted/20",
+                excelFileName && "border-champagne/40 bg-champagne-muted/20",
               )}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                handleFilePick(e.dataTransfer.files?.[0]);
+                void handleExcelPick(e.dataTransfer.files?.[0]);
               }}
             >
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-champagne/30 bg-surface text-champagne">
-                {imageName ? (
-                  <ImageIcon className="h-6 w-6" />
+                {excelFileName ? (
+                  <FileSpreadsheet className="h-6 w-6" />
                 ) : (
                   <Upload className="h-6 w-6" />
                 )}
               </div>
               <h2 className="text-2xl font-semibold tracking-tight text-charcoal">
-                {imageName ? imageName : "Drop jewellery image"}
+                {excelFileName ? excelFileName : "Drop jewellery Excel"}
               </h2>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                Drag &amp; drop, browse, or paste (Ctrl+V) a clear design-sheet
-                photo. Real OCR (Tesseract) reads the image — verify fields
-                before pricing. First run may take longer while language data
-                downloads.
+                Upload a spreadsheet (.xlsx, .xls, or .csv) with design rows.
+                Download the sample template, fill it in, then verify each row
+                before pricing. Or add a single piece manually.
               </p>
-              {ocrError && (
-                <p className="mt-3 text-sm text-destructive" role="alert">
-                  {ocrError}
+              {importError && (
+                <p className="mt-3 max-w-lg text-sm text-destructive" role="alert">
+                  {importError}
                 </p>
               )}
               <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
                 <label>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept={EXCEL_ACCEPT}
                     className="sr-only"
-                    onChange={(e) => handleFilePick(e.target.files?.[0])}
+                    onChange={(e) => {
+                      void handleExcelPick(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
                   />
                   <span className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-surface px-4 text-sm font-medium hover:border-champagne/40 hover:bg-ivory-deep/60">
-                    Browse image
+                    Browse Excel
                   </span>
                 </label>
                 <Button
                   type="button"
                   variant="outline"
                   className="h-10 px-4 text-sm"
-                  onClick={handlePasteFromClipboard}
+                  onClick={() => downloadSampleExcel()}
                 >
-                  <ClipboardPaste className="h-4 w-4" />
-                  Paste image
+                  <Download className="h-4 w-4" />
+                  Sample Excel
                 </Button>
                 <Button
                   type="button"
@@ -738,28 +943,28 @@ export function PricingWorkspace({
                   <Plus className="h-4 w-4" />
                   Add manually
                 </Button>
-                {imageName && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      className="h-10 px-4 text-sm"
-                      onClick={handleRemoveImage}
-                    >
-                      <X />
-                      Remove
-                    </Button>
-                    <Button
-                      variant="champagne"
-                      className="h-10 px-4 text-sm"
-                      onClick={handleProcessImage}
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? "Reading image…" : "Process image"}
-                    </Button>
-                  </>
+                {excelFileName && (
+                  <Button
+                    variant="ghost"
+                    className="h-10 px-4 text-sm"
+                    onClick={handleRemoveExcel}
+                  >
+                    <X />
+                    Remove
+                  </Button>
                 )}
               </div>
+              <p className="mt-4 text-xs text-muted-foreground">
+                <a
+                  href="/samples/jewellery-import-template.xlsx"
+                  className="underline-offset-2 hover:underline"
+                  download
+                >
+                  Or download static sample
+                </a>
+              </p>
             </div>
+            )}
           </CardContent>
         )}
 
@@ -767,59 +972,31 @@ export function PricingWorkspace({
           <CardContent className="p-0">
             <div className="grid lg:grid-cols-2">
               <div className="border-b border-border/70 bg-ivory-deep/30 p-5 lg:border-b-0 lg:border-r">
-                <p className="mb-3 text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                  {entryMode === "manual" ? "Manual entry" : "Original image"}
-                </p>
-                <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border border-border bg-surface">
-                  {imagePreviewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={imagePreviewUrl}
-                      alt={imageName ?? "Uploaded jewellery sheet"}
-                      className="h-full w-full object-contain"
-                    />
-                  ) : entryMode === "manual" ? (
-                    <div className="px-6 text-center">
-                      <Plus className="mx-auto h-10 w-10 text-champagne/70" />
-                      <p className="mt-2 text-sm font-medium text-charcoal">
-                        No image — manual entry
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Fill in the fields on the right, then continue to
-                        pricing. You can switch to image OCR anytime from Import.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <ImageIcon className="mx-auto h-10 w-10 text-champagne/70" />
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {imageName ?? "design-sheet.jpg"}
-                      </p>
-                    </div>
-                  )}
-                </div>
-                {ocrMeta && (
-                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                    <p>
-                      Provider:{" "}
-                      <span className="font-medium text-charcoal">
-                        {ocrMeta.provider}
-                      </span>{" "}
-                      · Confidence{" "}
-                      {Math.round(ocrMeta.confidence * 100)}%
-                      {ocrImportId ? ` · Import ${ocrImportId.slice(0, 8)}` : ""}
+                {entryMode === "manual" ? (
+                  <>
+                    <p className="mb-3 text-xs uppercase tracking-[0.08em] text-muted-foreground">
+                      Manual entry
                     </p>
-                    {ocrMeta.goldCodeParsed && (
-                      <p className="text-[var(--success)]">
-                        Gold code parsed successfully
-                      </p>
-                    )}
-                    {ocrMeta.unknownGoldCode && (
-                      <p className="text-destructive">
-                        Unknown gold code — please correct below
-                      </p>
-                    )}
-                  </div>
+                    <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border border-border bg-surface">
+                      <div className="px-6 text-center">
+                        <Plus className="mx-auto h-10 w-10 text-champagne/70" />
+                        <p className="mt-2 text-sm font-medium text-charcoal">
+                          No spreadsheet — manual entry
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Fill in the fields on the right, then continue to
+                          pricing. You can upload Excel anytime from Import.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <ExcelRowsTable
+                    rows={excelRows}
+                    selectedIndex={selectedRowIndex}
+                    fileName={excelFileName}
+                    onSelect={(index) => applyRowSelection(index, excelRows)}
+                  />
                 )}
               </div>
 
@@ -829,39 +1006,32 @@ export function PricingWorkspace({
                     <h2 className="text-xl font-semibold tracking-tight">
                       {entryMode === "manual"
                         ? "Enter jewellery data"
-                        : "Verify extracted data"}
+                        : "Verify Excel data"}
                     </h2>
                     <p className="text-sm text-muted-foreground">
                       {entryMode === "manual"
                         ? "Type the design values before pricing."
-                        : "Correct OCR mistakes before pricing."}
+                        : "Edit the selected row before pricing."}
                     </p>
                   </div>
                   <Badge>Editable</Badge>
                 </div>
 
-                {ocrMeta && ocrMeta.warnings.length > 0 && (
+                {entryMode === "excel" &&
+                  selectedRowIndex != null &&
+                  excelRows[selectedRowIndex]?.validation.warnings.length ? (
                   <div
                     className="mb-4 rounded-lg border border-champagne/40 bg-champagne-muted/30 px-3 py-2 text-sm text-charcoal"
                     role="status"
                   >
                     <ul className="list-disc space-y-0.5 pl-4">
-                      {ocrMeta.warnings.map((w) => (
-                        <li key={w}>{w}</li>
-                      ))}
+                      {excelRows[selectedRowIndex].validation.warnings.map(
+                        (w) => (
+                          <li key={w}>{w}</li>
+                        ),
+                      )}
                     </ul>
                   </div>
-                )}
-
-                {ocrMeta?.rawText ? (
-                  <details className="mb-4 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm">
-                    <summary className="cursor-pointer select-none font-medium text-charcoal">
-                      Raw OCR text (what the scanner read)
-                    </summary>
-                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">
-                      {ocrMeta.rawText}
-                    </pre>
-                  </details>
                 ) : null}
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -889,25 +1059,13 @@ export function PricingWorkspace({
                         const code = e.target.value;
                         const parsed = parseGoldCode(code);
                         if (parsed.ok) {
-                          setExtracted((prev) => ({
-                            ...prev,
+                          setExtractedSynced({
+                            ...extracted,
                             goldCode: parsed.normalizedCode,
                             goldMetal: parsed.metalLabel,
                             goldPurity: parsed.purity,
                             goldColor: parsed.colorLabel,
-                          }));
-                          setOcrMeta((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  goldCodeParsed: true,
-                                  unknownGoldCode: false,
-                                  warnings: prev.warnings.filter(
-                                    (w) => !w.toLowerCase().includes("gold code"),
-                                  ),
-                                }
-                              : prev,
-                          );
+                          });
                         } else {
                           updateExtracted("goldCode", code);
                         }
@@ -991,7 +1149,14 @@ export function PricingWorkspace({
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
-                  <Button variant="outline" onClick={() => setStep("import")}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      // Keep Excel in memory — Import shows “Continue to Verify”.
+                      savePricingDraft(buildDraft({ step: "import" }));
+                      setStep("import", "replace");
+                    }}
+                  >
                     Back
                   </Button>
                   <Button
@@ -1025,7 +1190,13 @@ export function PricingWorkspace({
                           ? (shapeLower as PricingFormState["diamondShape"])
                           : p.diamondShape,
                       }));
-                      setStep("price");
+                      savePricingDraft(
+                        buildDraft({
+                          step: "price",
+                          calculatedAt: null,
+                        }),
+                      );
+                      setStep("price", "push");
                     }}
                   >
                     Continue to Pricing
@@ -1042,7 +1213,7 @@ export function PricingWorkspace({
               <aside className="border-b border-border/70 p-5 lg:col-span-3 lg:border-b-0 lg:border-r">
                 <h2 className="text-lg font-semibold tracking-tight">Jewellery Data</h2>
                 <p className="mb-3 text-xs text-muted-foreground">
-                  From verified extraction
+                  From verified Excel / manual entry
                 </p>
                 <DataRow label="Design No" value={extracted.designNo} />
                 <DataRow label="Category" value={extracted.category} />
@@ -1066,9 +1237,14 @@ export function PricingWorkspace({
                   variant="ghost"
                   size="sm"
                   className="mt-3 px-0"
-                  onClick={() => setStep("verify")}
+                  onClick={() => {
+                    savePricingDraft(buildDraft({ step: "verify" }));
+                    setStep("verify", "replace");
+                  }}
                 >
-                  Edit data
+                  {entryMode === "excel"
+                    ? "Back to Excel rows"
+                    : "Edit data"}
                 </Button>
               </aside>
 
@@ -1411,6 +1587,17 @@ export function PricingWorkspace({
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      className="flex-1"
+                      size="lg"
+                      variant="outline"
+                      onClick={() => {
+                        savePricingDraft(buildDraft({ step: "verify" }));
+                        setStep("verify", "replace");
+                      }}
+                    >
+                      Back to Verify
+                    </Button>
                     <Button
                       className="flex-1"
                       size="lg"

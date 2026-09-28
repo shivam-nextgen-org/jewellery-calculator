@@ -153,7 +153,7 @@ export function PricingResultsView() {
           pricing: draft.pricing,
           selection: draft.selection,
           purityPercentages: draft.purityPercentages,
-          imageFileName: draft.imageName,
+          imageFileName: draft.excelFileName ?? draft.imageName,
           overridesByVariationId: draft.overridesByVariationId,
         }),
       });
@@ -216,9 +216,20 @@ export function PricingResultsView() {
           size="sm"
           onClick={() => {
             if (draft) {
-              savePricingDraft({ ...draft, step: "price", resume: true });
+              const hasExcel =
+                Boolean(draft.excelFileName) ||
+                Boolean(draft.excelRows?.length) ||
+                draft.entryMode === "excel";
+              const nextStep = hasExcel ? "verify" : "price";
+              savePricingDraft({
+                ...draft,
+                step: nextStep,
+                resume: true,
+              });
+              router.push(`/pricing?step=${nextStep}`);
+            } else {
+              router.push("/pricing?step=import");
             }
-            router.push("/pricing");
           }}
         >
           <ArrowLeft className="h-4 w-4" />
@@ -306,17 +317,19 @@ export function PricingResultsView() {
               variant="ghost"
               onClick={() => {
                 savePricingDraft({ ...draft, step: "verify", resume: true });
-                router.push("/pricing");
+                router.push("/pricing?step=verify");
               }}
             >
-              Edit Data
+              {draft.entryMode === "excel" || draft.excelRows?.length
+                ? "Choose another row"
+                : "Edit Data"}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => {
                 savePricingDraft({ ...draft, step: "price", resume: true });
-                router.push("/pricing");
+                router.push("/pricing?step=price");
               }}
             >
               Edit Rates

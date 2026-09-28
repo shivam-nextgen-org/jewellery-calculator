@@ -9,7 +9,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Atelier · Jewellery Pricing",
   description:
-    "Premium internal jewellery image-to-price workspace — upload, verify, price, vary, done.",
+    "Premium internal jewellery pricing workspace — spreadsheet or manual entry, verify, price, vary, done.",
 };
 
 export default async function RootLayout({
