@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, useState } from "react";
-import { ChevronDown, Pencil } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
+import { ChevronDown, Pencil, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { variationMatchesSearch } from "@/lib/excel/export-variations";
 import { formatMoney } from "@/lib/fx/format-money";
 import type { SupportedCurrency } from "@/lib/fx/currencies";
 import { formatWeight } from "@/lib/format";
@@ -214,10 +215,16 @@ export function VariationResultsTable({
   rates?: Partial<Record<string, number>> | null;
 }) {
   const fmt: MoneyFmt = { currency, rates };
+  const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(
     variations[0]?.id ?? null,
   );
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const filtered = useMemo(
+    () => variations.filter((row) => variationMatchesSearch(row, search)),
+    [variations, search],
+  );
 
   if (variations.length === 0) {
     return (
@@ -241,9 +248,38 @@ export function VariationResultsTable({
   // especially between the sticky/frozen columns). The outer container border
   // closes the top/left edges.
   const grid = "border-b border-r border-border/60";
+  const hasSearch = search.trim().length > 0;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface">
+    <div className="space-y-3">
+      <div className="relative max-w-md">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search purity, color, diamond…"
+          className="h-9 pl-8 pr-8"
+          aria-label="Search variation prices"
+        />
+        {hasSearch ? (
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-charcoal"
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+      {hasSearch ? (
+        <p className="text-xs text-muted-foreground">
+          Showing {filtered.length} of {variations.length} variation
+          {variations.length === 1 ? "" : "s"}
+        </p>
+      ) : null}
+
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1000px] text-left text-sm">
           <thead>
@@ -274,7 +310,17 @@ export function VariationResultsTable({
             </tr>
           </thead>
           <tbody>
-            {variations.map((row) => {
+            {filtered.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={13}
+                  className="px-4 py-8 text-center text-sm text-muted-foreground"
+                >
+                  No variations match your search.
+                </td>
+              </tr>
+            ) : null}
+            {filtered.map((row) => {
               const open = expandedId === row.id;
               const editing = editingId === row.id;
               return (
@@ -427,6 +473,7 @@ export function VariationResultsTable({
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   );
 }

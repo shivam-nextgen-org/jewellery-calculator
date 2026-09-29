@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { VariationResultsTable } from "@/components/pricing/variation-results";
+import { downloadVariationPricesExcel } from "@/lib/excel/export-variations";
 import { formatMoney } from "@/lib/fx/format-money";
 import {
   SUPPORTED_CURRENCIES,
@@ -174,6 +175,18 @@ export function PricingResultsView() {
   function clearAllOverrides() {
     if (!draft) return;
     persist({ ...draft, overridesByVariationId: {} });
+  }
+
+  function handleExportExcel() {
+    if (!draft || pricedVariations.length === 0) return;
+    downloadVariationPricesExcel(pricedVariations, {
+      designNo: draft.extracted.designNo,
+      category: draft.extracted.category,
+      netWeight: draft.extracted.netWeight,
+      diamondWeight: draft.extracted.diamondWeight,
+      currency,
+      rates: fxRates,
+    });
   }
 
   async function handleSaveProduct() {
@@ -369,8 +382,13 @@ export function PricingResultsView() {
             >
               {saving ? "Saving…" : "Save Product"}
             </Button>
-            <Button size="sm" variant="outline" disabled>
-              Export
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleExportExcel}
+              disabled={pricedVariations.length === 0 || validationIssues.length > 0}
+            >
+              Export Excel
             </Button>
             <Button size="sm" variant="outline" onClick={clearAllOverrides}>
               Clear overrides
