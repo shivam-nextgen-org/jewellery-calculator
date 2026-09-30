@@ -17,6 +17,20 @@ export async function getSession(): Promise<SessionUser | null> {
   return readSessionToken(jar.get(SESSION_COOKIE)?.value);
 }
 
+/**
+ * Whether to mark the session cookie `secure`.
+ * A `secure` cookie is DROPPED by the browser over plain HTTP — which breaks
+ * login on phones hitting an http://IP or http://domain (no HTTPS). Default to
+ * secure in production, but allow COOKIE_SECURE=false to disable it when the
+ * app is served over HTTP (e.g. a VPS without TLS yet).
+ */
+function shouldUseSecureCookie(): boolean {
+  const flag = process.env.COOKIE_SECURE?.trim().toLowerCase();
+  if (flag === "false" || flag === "0") return false;
+  if (flag === "true" || flag === "1") return true;
+  return process.env.NODE_ENV === "production";
+}
+
 export async function createSession(user: SessionUser, remember = false) {
   const days = remember ? REMEMBER_DAYS : SESSION_DAYS;
   const token = await signSession(user, days);
@@ -24,7 +38,7 @@ export async function createSession(user: SessionUser, remember = false) {
   jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(),
     path: "/",
     maxAge: days * 24 * 60 * 60,
   });

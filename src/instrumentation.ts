@@ -6,7 +6,7 @@
  *
  * Schedules (Asia/Kolkata):
  * - Gold rate: 15 11 * * *  → 11:15 AM IST
- * - FX rates:  0 0 * * *    → 12:00 AM (midnight) IST
+ * - FX rates:  20 11 * * *  → 11:20 AM IST
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === "edge") return;
@@ -92,7 +92,7 @@ export async function register() {
 
   if (process.env.FX_RATE_CRON_DISABLED !== "1") {
     cron.schedule(
-      "0 0 * * *",
+      "20 11 * * *",
       async () => {
         try {
           await postCron("/api/fx-rates/update", "fx-rates");
@@ -105,7 +105,7 @@ export async function register() {
       },
       { timezone },
     );
-    console.info(`[fx-rates] cron registered: 0 0 * * * (${timezone})`);
+    console.info(`[fx-rates] cron registered: 20 11 * * * (${timezone})`);
   } else {
     console.info("[fx-rates] cron disabled via FX_RATE_CRON_DISABLED=1");
   }

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { AppShell } from "@/components/layout/app-shell";
 import { ClientRoot } from "@/components/layout/client-root";
 import { getSession } from "@/lib/auth/session";
@@ -21,6 +20,11 @@ export default async function RootLayout({
   return (
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
       <head>
+        {/* Runs synchronously before hydration to strip extension-injected
+            attributes (e.g. bis_skin_checked) that cause hydration mismatches. */}
+        <script
+          dangerouslySetInnerHTML={{ __html: SUPPRESS_EXTENSION_CONSOLE }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -40,11 +44,6 @@ export default async function RootLayout({
         className="min-h-full flex flex-col font-sans"
         suppressHydrationWarning
       >
-        <Script
-          id="suppress-extension-console"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{ __html: SUPPRESS_EXTENSION_CONSOLE }}
-        />
         <ClientRoot>
           <AppShell user={user}>{children}</AppShell>
         </ClientRoot>

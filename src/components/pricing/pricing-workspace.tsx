@@ -3,10 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeft,
+  Calculator,
   Download,
   FileSpreadsheet,
   Loader2,
   Plus,
+  RefreshCw,
   Trash2,
   Upload,
   X,
@@ -80,6 +83,7 @@ import { cn } from "@/lib/utils";
 function pricingFromDefaults(defaults: PricingDefaults): PricingFormState {
   return {
     gold24kRate: defaults.gold24kRate,
+    silverRate: defaults.silverRate ?? 0,
     diamondShape: "round",
     diamondRateNatural: defaults.defaultDiamondRateNatural,
     diamondRateLabGrown: defaults.defaultDiamondRateLabGrown,
@@ -121,23 +125,27 @@ const BLANK_EXTRACTED: JewelleryExtractedData = {
 const METAL_OPTIONS: { id: GoldMetalOption; label: string }[] = [
   { id: "gold", label: "Gold" },
   { id: "silver", label: "Silver" },
-  { id: "platinum", label: "Platinum" },
 ];
 
-const PURITY_OPTIONS: GoldPurityOption[] = [
-  "10K",
-  "14K",
-  "18K",
+const GOLD_PURITY_OPTIONS: GoldPurityOption[] = [
+  "24K",
   "22K",
+  "18K",
+  "14K",
+  "10K",
   "9K",
-  "925",
-  "999",
 ];
+
+const SILVER_PURITY_OPTIONS: GoldPurityOption[] = ["999", "958", "925"];
 
 const COLOR_OPTIONS: { id: GoldColorOption; label: string }[] = [
   { id: "yellow", label: "Yellow Gold" },
   { id: "white", label: "White Gold" },
   { id: "rose", label: "Rose Gold" },
+];
+
+const SILVER_COLOR_OPTIONS: { id: GoldColorOption; label: string }[] = [
+  { id: "sterling", label: "Sterling Silver" },
 ];
 
 function Field({
@@ -219,7 +227,7 @@ export function PricingWorkspace({
   const [isProcessing, setIsProcessing] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [extracted, setExtracted] =
-    useState<JewelleryExtractedData>(MOCK_EXTRACTED);
+    useState<JewelleryExtractedData>(BLANK_EXTRACTED);
   const [defaults, setDefaults] = useState<PricingDefaults>(
     initialDefaults ?? MOCK_PRICING_DEFAULTS,
   );
@@ -377,14 +385,12 @@ export function PricingWorkspace({
   useEffect(() => {
     queueMicrotask(() => {
       const draft = loadPricingDraft();
-      if (!draftHasActiveSession(draft)) {
-        clearPricingDraft();
-        const urlStep = readStepFromUrl();
-        setStep(urlStep ?? "import", "replace");
-      } else if (draft) {
+      // Only restore when the user explicitly came back from the results page
+      // to edit (draft.resume === true). Every other entry into Jewellery
+      // Pricing starts fresh — no leftover data from a previous session.
+      if (draft?.resume && draftHasActiveSession(draft)) {
         restoreFromDraft(draft);
         const urlStep = readStepFromUrl();
-        // Prefer explicit URL step when valid; otherwise draft step already applied.
         if (urlStep && urlStep !== stepRef.current) {
           setStep(urlStep, "replace");
         } else {
@@ -392,6 +398,7 @@ export function PricingWorkspace({
         }
         savePricingDraft({ ...draft, resume: false, step: stepRef.current });
       } else {
+        clearPricingDraft();
         setStep("import", "replace");
       }
       hydratedRef.current = true;
@@ -424,6 +431,7 @@ export function PricingWorkspace({
       netWeight: extracted.netWeight,
       diamondWeight: extracted.diamondWeight,
       gold24kRate: pricing.gold24kRate,
+      silverRate: pricing.silverRate ?? defaults.silverRate ?? 0,
       purityPercentages: defaults.purityPercentages,
       metals: selection.metals,
       purities: selection.purities,
@@ -465,11 +473,28 @@ export function PricingWorkspace({
 
   const estimatedPreview = pricedVariations[0]?.calculation.finalPrice ?? "0";
 
-  const purityRates = useMemo(
-    () =>
-      buildPurityRateTable(pricing.gold24kRate, defaults.purityPercentages),
-    [pricing.gold24kRate, defaults.purityPercentages],
-  );
+  // Gold purities price off the gold 24K rate; silver purities off the silver
+  // rate. Kept as two separate tables so Gold and Silver never mix.
+  const goldPurityRates = useMemo(() => {
+    const percentages = Object.fromEntries(
+      GOLD_PURITY_OPTIONS.filter(
+        (p) => defaults.purityPercentages[p] != null,
+      ).map((p) => [p, defaults.purityPercentages[p]]),
+    );
+    return buildPurityRateTable(pricing.gold24kRate, percentages);
+  }, [pricing.gold24kRate, defaults.purityPercentages]);
+
+  const silverPurityRates = useMemo(() => {
+    const percentages = Object.fromEntries(
+      SILVER_PURITY_OPTIONS.filter(
+        (p) => defaults.purityPercentages[p] != null,
+      ).map((p) => [p, defaults.purityPercentages[p]]),
+    );
+    return buildPurityRateTable(pricing.silverRate ?? 0, percentages);
+  }, [pricing.silverRate, defaults.purityPercentages]);
+
+  const goldSelected = selection.metals.includes("gold");
+  const silverSelected = selection.metals.includes("silver");
 
   const hasOverrides = Object.keys(overridesByVariationId).length > 0;
 
@@ -973,7 +998,7 @@ export function PricingWorkspace({
         {step === "verify" && (
           <CardContent className="p-0">
             <div className="grid lg:grid-cols-2">
-              <div className="border-b border-border/70 bg-ivory-deep/30 p-5 lg:border-b-0 lg:border-r">
+              <div className="min-w-0 border-b border-border/70 bg-ivory-deep/30 p-5 lg:border-b-0 lg:border-r">
                 {entryMode === "manual" ? (
                   <>
                     <p className="mb-3 text-xs uppercase tracking-[0.08em] text-muted-foreground">
@@ -1002,7 +1027,7 @@ export function PricingWorkspace({
                 )}
               </div>
 
-              <div className="p-5 sm:p-6">
+              <div className="min-w-0 p-5 sm:p-6">
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold tracking-tight">
@@ -1212,7 +1237,7 @@ export function PricingWorkspace({
         {showPricingLayout && (
           <CardContent className="p-0">
             <div className="grid gap-0 lg:grid-cols-12">
-              <aside className="border-b border-border/70 p-5 lg:col-span-3 lg:border-b-0 lg:border-r">
+              <aside className="min-w-0 border-b border-border/70 p-5 lg:col-span-3 lg:border-b-0 lg:border-r">
                 <h2 className="text-lg font-semibold tracking-tight">Jewellery Data</h2>
                 <p className="mb-3 text-xs text-muted-foreground">
                   From verified Excel / manual entry
@@ -1250,7 +1275,7 @@ export function PricingWorkspace({
                 </Button>
               </aside>
 
-              <section className="border-b border-border/70 p-5 lg:col-span-4 lg:border-b-0 lg:border-r">
+              <section className="min-w-0 border-b border-border/70 p-5 lg:col-span-4 lg:border-b-0 lg:border-r">
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <div>
                     <h2 className="text-lg font-semibold tracking-tight">
@@ -1277,10 +1302,29 @@ export function PricingWorkspace({
                           <Checkbox
                             checked={selection.metals.includes(opt.id)}
                             onCheckedChange={() =>
-                              setSelection((prev) => ({
-                                ...prev,
-                                metals: toggleInArray(prev.metals, opt.id),
-                              }))
+                              setSelection((prev) => {
+                                // Gold and silver are mutually exclusive — pick
+                                // one metal at a time so purities/colors never mix.
+                                if (prev.metals.includes(opt.id)) return prev;
+                                const isSilver = opt.id === "silver";
+                                const allowedPurities = isSilver
+                                  ? SILVER_PURITY_OPTIONS
+                                  : GOLD_PURITY_OPTIONS;
+                                const allowedColors = (
+                                  isSilver ? SILVER_COLOR_OPTIONS : COLOR_OPTIONS
+                                ).map((c) => c.id);
+                                return {
+                                  ...prev,
+                                  metals: [opt.id],
+                                  // Drop purities/colors that don't belong to the new metal.
+                                  purities: prev.purities.filter((p) =>
+                                    allowedPurities.includes(p),
+                                  ),
+                                  colors: prev.colors.filter((c) =>
+                                    allowedColors.includes(c),
+                                  ),
+                                };
+                              })
                             }
                           />
                           {opt.label}
@@ -1289,33 +1333,69 @@ export function PricingWorkspace({
                     </div>
                   </div>
 
-                  <div>
-                    <Label className="mb-2 block">Purity</Label>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {PURITY_OPTIONS.map((purity) => (
-                        <label
-                          key={purity}
-                          className="flex cursor-pointer items-center gap-2.5 text-sm"
-                        >
-                          <Checkbox
-                            checked={selection.purities.includes(purity)}
-                            onCheckedChange={() =>
-                              setSelection((prev) => ({
-                                ...prev,
-                                purities: toggleInArray(prev.purities, purity),
-                              }))
-                            }
-                          />
-                          {purity}
-                        </label>
-                      ))}
+                  {goldSelected && (
+                    <div>
+                      <Label className="mb-2 block">Gold Purity</Label>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {GOLD_PURITY_OPTIONS.map((purity) => (
+                          <label
+                            key={purity}
+                            className="flex cursor-pointer items-center gap-2.5 text-sm"
+                          >
+                            <Checkbox
+                              checked={selection.purities.includes(purity)}
+                              onCheckedChange={() =>
+                                setSelection((prev) => ({
+                                  ...prev,
+                                  purities: toggleInArray(
+                                    prev.purities,
+                                    purity,
+                                  ),
+                                }))
+                              }
+                            />
+                            {purity}
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {silverSelected && (
+                    <div>
+                      <Label className="mb-2 block">Silver Purity</Label>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {SILVER_PURITY_OPTIONS.map((purity) => (
+                          <label
+                            key={purity}
+                            className="flex cursor-pointer items-center gap-2.5 text-sm"
+                          >
+                            <Checkbox
+                              checked={selection.purities.includes(purity)}
+                              onCheckedChange={() =>
+                                setSelection((prev) => ({
+                                  ...prev,
+                                  purities: toggleInArray(
+                                    prev.purities,
+                                    purity,
+                                  ),
+                                }))
+                              }
+                            />
+                            {purity}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <Label className="mb-2 block">Color</Label>
                     <div className="space-y-2">
-                      {COLOR_OPTIONS.map((opt) => (
+                      {(silverSelected
+                        ? SILVER_COLOR_OPTIONS
+                        : COLOR_OPTIONS
+                      ).map((opt) => (
                         <label
                           key={opt.id}
                           className="flex cursor-pointer items-center gap-2.5 text-sm"
@@ -1372,7 +1452,7 @@ export function PricingWorkspace({
                 </div>
               </section>
 
-              <section className="p-5 lg:col-span-5">
+              <section className="min-w-0 p-5 lg:col-span-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-lg font-semibold tracking-tight">Pricing</h2>
                   <span className="text-xs text-muted-foreground">
@@ -1396,44 +1476,87 @@ export function PricingWorkspace({
                 )}
 
                 <div className="space-y-6">
-                  <div>
-                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-champagne">
-                      Gold
-                    </p>
-                    <Field label="24K Base Rate (₹ / gram)">
-                      <NumberInput
-                        value={pricing.gold24kRate}
-                        onValueChange={(n) =>
-                          setPricing((p) => ({ ...p, gold24kRate: n }))
-                        }
-                      />
-                    </Field>
-                    <div className="mt-3 overflow-hidden rounded-lg border border-border/80">
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {purityRates.map((row) => (
-                            <tr
-                              key={row.purity}
-                              className="border-b border-border/60 last:border-0"
-                            >
-                              <td className="px-3 py-2 font-medium">
-                                {row.purity}
-                              </td>
-                              <td className="px-3 py-2 text-muted-foreground">
-                                {formatPercent(row.percentage)}
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums">
-                                {formatINR(row.ratePerGram, {
-                                  maximumFractionDigits: 0,
-                                  minimumFractionDigits: 0,
-                                })}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  {goldSelected && (
+                    <div>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-champagne">
+                        Gold
+                      </p>
+                      <Field label="24K Base Rate (₹ / gram)">
+                        <NumberInput
+                          value={pricing.gold24kRate}
+                          onValueChange={(n) =>
+                            setPricing((p) => ({ ...p, gold24kRate: n }))
+                          }
+                        />
+                      </Field>
+                      <div className="mt-3 overflow-hidden rounded-lg border border-border/80">
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {goldPurityRates.map((row) => (
+                              <tr
+                                key={row.purity}
+                                className="border-b border-border/60 last:border-0"
+                              >
+                                <td className="px-3 py-2 font-medium">
+                                  {row.purity}
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  {formatPercent(row.percentage)}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums">
+                                  {formatINR(row.ratePerGram, {
+                                    maximumFractionDigits: 0,
+                                    minimumFractionDigits: 0,
+                                  })}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {silverSelected && (
+                    <div>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-charcoal-muted">
+                        Silver
+                      </p>
+                      <Field label="Silver Rate (₹ / gram)">
+                        <NumberInput
+                          value={pricing.silverRate}
+                          onValueChange={(n) =>
+                            setPricing((p) => ({ ...p, silverRate: n }))
+                          }
+                        />
+                      </Field>
+                      <div className="mt-3 overflow-hidden rounded-lg border border-border/80">
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {silverPurityRates.map((row) => (
+                              <tr
+                                key={row.purity}
+                                className="border-b border-border/60 last:border-0"
+                              >
+                                <td className="px-3 py-2 font-medium">
+                                  {row.purity}
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  {formatPercent(row.percentage)}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums">
+                                  {formatINR(row.ratePerGram, {
+                                    maximumFractionDigits: 0,
+                                    minimumFractionDigits: 0,
+                                  })}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-champagne">
@@ -1442,7 +1565,7 @@ export function PricingWorkspace({
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Field label="Shape">
                         <select
-                          className="flex h-10 w-full rounded-md border border-input bg-surface-elevated px-3 text-sm"
+                          className="app-select flex h-10 w-full rounded-md border border-input bg-surface-elevated px-3 text-sm"
                           value={pricing.diamondShape}
                           onChange={(e) =>
                             setPricing((p) => ({
@@ -1543,7 +1666,7 @@ export function PricingWorkspace({
                       </Field>
                       <Field label="Calculation Type">
                         <select
-                          className="flex h-10 w-full rounded-md border border-input bg-surface-elevated px-3 text-sm"
+                          className="app-select flex h-10 w-full rounded-md border border-input bg-surface-elevated px-3 text-sm"
                           value={pricing.makingCalcType}
                           onChange={(e) =>
                             setPricing((p) => ({
@@ -1600,43 +1723,50 @@ export function PricingWorkspace({
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      className="flex-1"
-                      size="lg"
-                      variant="outline"
-                      onClick={() => {
-                        savePricingDraft(buildDraft({ step: "verify" }));
-                        setStep("verify", "replace");
-                      }}
-                    >
-                      Back to Verify
-                    </Button>
-                    <Button
-                      className="flex-1"
-                      size="lg"
-                      variant="champagne"
-                      onClick={() => void runCalculate()}
-                      disabled={validationIssues.length > 0 || isCalculating}
-                    >
-                      {isCalculating ? (
-                        <>
-                          <Loader2 className="animate-spin" />
-                          Calculating…
-                        </>
-                      ) : (
-                        "Calculate"
-                      )}
-                    </Button>
-                    <Button
-                      className="flex-1"
-                      size="lg"
-                      variant="outline"
-                      onClick={requestRecalculateAll}
-                      disabled={validationIssues.length > 0 || isCalculating}
-                    >
-                      Recalculate All
-                    </Button>
+                  <div className="mt-5 border-t border-border/70 pt-4">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <Button
+                        className="w-full sm:col-span-2"
+                        size="lg"
+                        variant="champagne"
+                        onClick={() => void runCalculate()}
+                        disabled={validationIssues.length > 0 || isCalculating}
+                      >
+                        {isCalculating ? (
+                          <>
+                            <Loader2 className="animate-spin" />
+                            Calculating…
+                          </>
+                        ) : (
+                          <>
+                            <Calculator className="h-4 w-4" />
+                            Calculate
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        className="w-full"
+                        size="lg"
+                        variant="outline"
+                        onClick={() => {
+                          savePricingDraft(buildDraft({ step: "verify" }));
+                          setStep("verify", "replace");
+                        }}
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                        Back to Verify
+                      </Button>
+                      <Button
+                        className="w-full"
+                        size="lg"
+                        variant="outline"
+                        onClick={requestRecalculateAll}
+                        disabled={validationIssues.length > 0 || isCalculating}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Recalculate All
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </section>

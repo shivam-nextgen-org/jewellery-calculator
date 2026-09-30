@@ -94,12 +94,12 @@ export function PageLoader({
   return (
     <div
       className={cn(
-        "fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-ivory/70 backdrop-blur-md",
+        "fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 backdrop-blur-md",
         className,
       )}
       suppressHydrationWarning
     >
-      <VideoLoader size={260} label={label} />
+      <BouncingRing size={180} label={label} />
       <p
         className="font-display text-xl font-medium tracking-tight text-charcoal-muted"
         suppressHydrationWarning

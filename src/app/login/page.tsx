@@ -18,17 +18,19 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Always start with empty fields, even when the browser restores the page
-  // from the back/forward cache (bfcache) on refresh or back navigation.
+  // Clear the fields only when the page is actually restored from the
+  // back/forward cache (event.persisted). Firing on every pageshow could wipe
+  // what the user is typing on mobile browsers.
   useEffect(() => {
-    function clear() {
-      setEmail("");
-      setPassword("");
-      setError(null);
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) {
+        setEmail("");
+        setPassword("");
+        setError(null);
+      }
     }
-    clear();
-    window.addEventListener("pageshow", clear);
-    return () => window.removeEventListener("pageshow", clear);
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
 
   async function onSubmit(event: FormEvent) {

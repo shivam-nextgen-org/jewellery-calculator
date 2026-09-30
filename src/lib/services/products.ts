@@ -39,6 +39,7 @@ function buildSession(payload: SaveProductPayload): PricingSessionInput {
     netWeight: payload.extracted.netWeight,
     diamondWeight: payload.extracted.diamondWeight,
     gold24kRate: payload.pricing.gold24kRate,
+    silverRate: payload.pricing.silverRate ?? 0,
     purityPercentages: payload.purityPercentages,
     metals: payload.selection.metals,
     purities: payload.selection.purities,

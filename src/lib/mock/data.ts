@@ -27,6 +27,7 @@ export const MOCK_EXTRACTED: JewelleryExtractedData = {
 
 export const MOCK_PRICING_DEFAULTS: PricingDefaults = {
   gold24kRate: 10000,
+  silverRate: 90,
   purityPercentages: {
     "24K": 100,
     "22K": 91.67,

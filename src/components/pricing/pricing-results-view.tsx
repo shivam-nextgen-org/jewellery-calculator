@@ -97,6 +97,7 @@ export function PricingResultsView() {
       netWeight: draft.extracted.netWeight,
       diamondWeight: draft.extracted.diamondWeight,
       gold24kRate: draft.pricing.gold24kRate,
+      silverRate: draft.pricing.silverRate ?? 0,
       purityPercentages: draft.purityPercentages,
       metals: draft.selection.metals,
       purities: draft.selection.purities,
@@ -266,7 +267,7 @@ export function PricingResultsView() {
         </div>
         <Button
           variant="outline"
-          size="sm"
+          className="h-10 w-full shrink-0 self-start sm:w-auto sm:self-end"
           onClick={() => {
             if (draft) {
               const hasExcel =
@@ -310,7 +311,7 @@ export function PricingResultsView() {
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>Currency</span>
               <select
-                className="h-8 rounded-md border border-input bg-surface-elevated px-2 text-sm text-charcoal"
+                className="app-select h-8 rounded-md border border-input bg-surface-elevated pl-2 text-sm text-charcoal"
                 value={currency}
                 onChange={(e) => {
                   const next = e.target.value;
@@ -451,6 +452,8 @@ export function PricingResultsView() {
           onClearOverride={clearOverride}
           currency={currency}
           rates={fxRates}
+          designNo={extracted.designNo}
+          category={extracted.category}
         />
       </div>
     </div>

@@ -11,7 +11,7 @@ export type GoldPurityOption =
   | "925"
   | "999"
   | "958";
-export type GoldColorOption = "yellow" | "white" | "rose";
+export type GoldColorOption = "yellow" | "white" | "rose" | "sterling";
 
 export type DiamondTypeOption = "natural" | "lab-grown" | "moissanite";
 export type DiamondShapeOption =
@@ -60,6 +60,8 @@ export interface OtherCharge {
 
 export interface PricingDefaults {
   gold24kRate: number;
+  /** Pure (999) silver rate ₹/gram. Silver purities (925/958/999) price off this. */
+  silverRate: number;
   purityPercentages: Record<GoldPurityOption, number>;
   /** @deprecated use defaultDiamondRateNatural — kept for older saved settings */
   defaultDiamondRate: number;
@@ -74,6 +76,8 @@ export interface PricingDefaults {
   defaultOtherCalcType: ChargeCalcType;
   /** ISO timestamp when gold24kRate was last refreshed from live market (optional). */
   goldRateLastUpdatedAt?: string | null;
+  /** ISO timestamp when silverRate was last refreshed from live market (optional). */
+  silverRateLastUpdatedAt?: string | null;
 }
 
 export interface VariationSelection {
@@ -85,6 +89,7 @@ export interface VariationSelection {
 
 export interface PricingFormState {
   gold24kRate: number;
+  silverRate: number;
   diamondShape: DiamondShapeOption;
   diamondRateNatural: number;
   diamondRateLabGrown: number;

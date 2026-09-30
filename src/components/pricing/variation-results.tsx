@@ -1,12 +1,15 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { ChevronDown, Pencil, Search, X } from "lucide-react";
+import { ChevronDown, Download, Pencil, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { variationMatchesSearch } from "@/lib/excel/export-variations";
+import {
+  downloadVariationPricesExcel,
+  variationMatchesSearch,
+} from "@/lib/excel/export-variations";
 import { formatMoney } from "@/lib/fx/format-money";
 import type { SupportedCurrency } from "@/lib/fx/currencies";
 import { formatWeight } from "@/lib/format";
@@ -29,15 +32,33 @@ function money(
 function BreakdownBlock({
   variation,
   fmt,
+  onClose,
 }: {
   variation: PricedVariation;
   fmt: MoneyFmt;
+  onClose?: () => void;
 }) {
   const c = variation.calculation;
   const b = c.breakdown;
 
   return (
-    <div className="space-y-3 bg-ivory-deep/35 px-4 py-4 text-sm sm:px-6">
+    <div className="sticky left-0 w-screen max-w-[calc(100vw-2rem)] space-y-3 bg-ivory-deep/35 px-4 py-4 text-sm sm:w-auto sm:max-w-none sm:px-6">
+      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+        <p className="text-sm font-semibold tracking-tight text-charcoal">
+          {variation.label} — breakdown
+        </p>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-ivory-deep hover:text-charcoal"
+            aria-label="Hide breakdown"
+          >
+            <X className="h-3.5 w-3.5" />
+            Hide
+          </button>
+        ) : null}
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <p className="text-xs uppercase tracking-[0.06em] text-champagne">
@@ -134,7 +155,7 @@ function OverrideEditor({
   const [finalPrice, setFinalPrice] = useState(c.finalPrice);
 
   return (
-    <div className="space-y-3 bg-surface px-4 py-4 sm:px-6">
+    <div className="sticky left-0 w-screen max-w-[calc(100vw-2rem)] space-y-3 bg-surface px-4 py-4 sm:w-auto sm:max-w-none sm:px-6">
       <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">
         Manual overrides
       </p>
@@ -205,6 +226,8 @@ export function VariationResultsTable({
   onClearOverride,
   currency = "INR",
   rates = null,
+  designNo = "variations",
+  category = "",
 }: {
   variations: PricedVariation[];
   netWeight: number;
@@ -213,12 +236,13 @@ export function VariationResultsTable({
   onClearOverride: (variationId: string) => void;
   currency?: SupportedCurrency;
   rates?: Partial<Record<string, number>> | null;
+  designNo?: string;
+  category?: string;
 }) {
   const fmt: MoneyFmt = { currency, rates };
   const [search, setSearch] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(
-    variations[0]?.id ?? null,
-  );
+  // Start collapsed — the breakdown opens only when the user taps a row.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const filtered = useMemo(
@@ -240,9 +264,18 @@ export function VariationResultsTable({
   // columns scroll horizontally between them.
   // Frozen columns use a distinct champagne tint so they stand out from the
   // scrolling (white) middle columns.
-  const stickyHead = "sticky z-20 bg-champagne-muted/60";
-  const stickyCell =
-    "sticky z-10 bg-champagne-muted/25 group-hover:bg-champagne-muted/45";
+  // Frozen columns MUST be opaque so scrolling content never shows through
+  // behind them (translucent tints caused text overlap at the boundary).
+  // Frozen-column backgrounds (champagne tint) — applied on all screen sizes
+  // so mobile and desktop look identical.
+  const headBg = "z-20 bg-champagne-muted";
+  const cellBg = "z-10 bg-[#f3ece0] group-hover:bg-[#ece2d0]";
+  // On mobile only the Final column is frozen; the left column + Diamond ₹ /
+  // Making / Other freeze from `lg` up. Final freezes on all sizes.
+  const freezeLg = "lg:sticky";
+  const freezeAll = "sticky";
+  // Frozen on mobile, normal (scrolling) column on desktop.
+  const freezeMobile = "sticky lg:static";
   // Grid lines: each cell draws only its right + bottom border so adjacent
   // cells never stack two borders on a shared edge (avoids double lines,
   // especially between the sticky/frozen columns). The outer container border
@@ -250,27 +283,50 @@ export function VariationResultsTable({
   const grid = "border-b border-r border-border/60";
   const hasSearch = search.trim().length > 0;
 
+  function handleExport() {
+    downloadVariationPricesExcel(filtered, {
+      designNo,
+      category,
+      netWeight,
+      diamondWeight,
+      currency,
+      rates,
+    });
+  }
+
   return (
     <div className="space-y-3">
-      <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search purity, color, diamond…"
-          className="h-9 pl-8 pr-8"
-          aria-label="Search variation prices"
-        />
-        {hasSearch ? (
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-charcoal"
-            onClick={() => setSearch("")}
-            aria-label="Clear search"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full max-w-md">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search purity, color, diamond…"
+            className="h-9 pl-8 pr-8"
+            aria-label="Search variation prices"
+          />
+          {hasSearch ? (
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-charcoal"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleExport}
+          disabled={variations.length === 0}
+        >
+          <Download className="h-3.5 w-3.5" />
+          Export
+        </Button>
       </div>
       {hasSearch ? (
         <p className="text-xs text-muted-foreground">
@@ -284,27 +340,29 @@ export function VariationResultsTable({
         <table className="w-full min-w-[1000px] text-left text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-[0.06em] text-muted-foreground">
-              <th className={cn("w-8 px-2 py-3 left-0", grid, stickyHead)} />
-              <th className={cn("px-3 py-3 font-medium left-8 min-w-[150px]", grid, stickyHead)}>
+              <th className={cn("w-8 px-2 py-3 left-0", grid, freezeAll, headBg)} />
+              <th className={cn("px-3 py-3 font-medium left-8 w-[110px] min-w-[110px] lg:w-auto lg:min-w-[150px]", grid, freezeAll, headBg)}>
                 Variation
               </th>
-              <th className={cn("px-3 py-3 font-medium", grid)}>Metal / Purity</th>
+              <th className={cn("px-3 py-3 font-medium left-[142px] min-w-[100px] lg:left-auto", grid, freezeMobile, headBg, "lg:bg-transparent")}>
+                Metal / Purity
+              </th>
               <th className={cn("px-3 py-3 font-medium", grid)}>Color</th>
               <th className={cn("px-3 py-3 font-medium", grid)}>Diamond</th>
               <th className={cn("px-3 py-3 font-medium text-right", grid)}>Net Wt</th>
-              <th className={cn("px-3 py-3 font-medium text-right", grid)}>Gold Rate</th>
-              <th className={cn("px-3 py-3 font-medium text-right", grid)}>Gold ₹</th>
+              <th className={cn("px-3 py-3 font-medium text-right", grid)}>Metal Rate</th>
+              <th className={cn("px-3 py-3 font-medium text-right", grid)}>Metal ₹</th>
               <th className={cn("px-3 py-3 font-medium text-right", grid)}>Dia Wt</th>
-              <th className={cn("px-3 py-3 font-medium text-right right-[320px] min-w-[110px]", grid, stickyHead)}>
+              <th className={cn("px-3 py-3 font-medium text-right lg:right-[320px] min-w-[110px]", grid, freezeLg, headBg)}>
                 Diamond ₹
               </th>
-              <th className={cn("px-3 py-3 font-medium text-right right-[230px] min-w-[90px]", grid, stickyHead)}>
+              <th className={cn("px-3 py-3 font-medium text-right lg:right-[230px] min-w-[90px]", grid, freezeLg, headBg)}>
                 Making
               </th>
-              <th className={cn("px-3 py-3 font-medium text-right right-[150px] min-w-[80px]", grid, stickyHead)}>
+              <th className={cn("px-3 py-3 font-medium text-right lg:right-[150px] min-w-[80px]", grid, freezeLg, headBg)}>
                 Other
               </th>
-              <th className={cn("px-3 py-3 font-medium text-right right-0 min-w-[150px]", grid, stickyHead)}>
+              <th className={cn("px-3 py-3 font-medium text-right right-0 min-w-[150px]", grid, freezeAll, headBg)}>
                 Final
               </th>
             </tr>
@@ -326,7 +384,7 @@ export function VariationResultsTable({
               return (
                 <Fragment key={row.id}>
                   <tr className="group">
-                    <td className={cn("px-2 py-2 left-0", grid, stickyCell)}>
+                    <td className={cn("px-2 py-2 left-0", grid, freezeAll, cellBg)}>
                       <button
                         type="button"
                         className="flex h-8 w-8 items-center justify-center text-muted-foreground"
@@ -348,27 +406,36 @@ export function VariationResultsTable({
                     </td>
                     <td
                       className={cn(
-                        "px-3 py-3 font-medium left-8",
+                        "px-3 py-3 font-medium left-8 w-[110px] min-w-[110px] lg:w-auto lg:min-w-[150px]",
                         grid,
-                        stickyCell,
+                        freezeAll,
+                        cellBg,
                       )}
                     >
                       <button
                         type="button"
-                        className="whitespace-nowrap text-left"
+                        className="text-left"
                         onClick={() =>
                           setExpandedId((id) =>
                             id === row.id ? null : row.id,
                           )
                         }
                       >
-                        {row.label}
+                        <span className="block lg:whitespace-nowrap">
+                          {row.label}
+                        </span>
                         {row.hasManualOverride && (
-                          <Badge className="ml-2">Manual</Badge>
+                          <Badge className="mt-1 lg:ml-2 lg:mt-0">Manual</Badge>
                         )}
                       </button>
                     </td>
-                    <td className={cn("whitespace-nowrap px-3 py-3 text-muted-foreground group-hover:bg-ivory-deep/25", grid)}>
+                    <td
+                      className={cn(
+                        "whitespace-nowrap px-3 py-3 text-muted-foreground left-[142px] min-w-[100px] z-10 bg-[#f3ece0] lg:left-auto lg:z-auto lg:bg-transparent lg:group-hover:bg-ivory-deep/25",
+                        grid,
+                        freezeMobile,
+                      )}
+                    >
                       {row.metalLabel} · {row.purity}
                     </td>
                     <td className={cn("whitespace-nowrap px-3 py-3 group-hover:bg-ivory-deep/25", grid)}>
@@ -394,27 +461,30 @@ export function VariationResultsTable({
                     </td>
                     <td
                       className={cn(
-                        "px-3 py-3 text-right tabular-nums whitespace-nowrap right-[320px] min-w-[110px]",
+                        "px-3 py-3 text-right tabular-nums whitespace-nowrap lg:right-[320px] min-w-[110px]",
                         grid,
-                        stickyCell,
+                        freezeLg,
+                        cellBg,
                       )}
                     >
                       {money(row.calculation.diamondFinalPrice, fmt)}
                     </td>
                     <td
                       className={cn(
-                        "px-3 py-3 text-right tabular-nums whitespace-nowrap right-[230px] min-w-[90px]",
+                        "px-3 py-3 text-right tabular-nums whitespace-nowrap lg:right-[230px] min-w-[90px]",
                         grid,
-                        stickyCell,
+                        freezeLg,
+                        cellBg,
                       )}
                     >
                       {money(row.calculation.makingCharge, fmt)}
                     </td>
                     <td
                       className={cn(
-                        "px-3 py-3 text-right tabular-nums whitespace-nowrap right-[150px] min-w-[80px]",
+                        "px-3 py-3 text-right tabular-nums whitespace-nowrap lg:right-[150px] min-w-[80px]",
                         grid,
-                        stickyCell,
+                        freezeLg,
+                        cellBg,
                       )}
                     >
                       {money(row.calculation.otherChargesTotal, fmt)}
@@ -423,7 +493,8 @@ export function VariationResultsTable({
                       className={cn(
                         "px-3 py-3 right-0 min-w-[150px]",
                         grid,
-                        stickyCell,
+                        freezeAll,
+                        cellBg,
                       )}
                     >
                       <div className="flex items-center justify-end gap-2">
@@ -448,7 +519,13 @@ export function VariationResultsTable({
                   {(open || editing) && (
                     <tr className="border-b border-border/70">
                       <td colSpan={13} className="p-0">
-                        {open && <BreakdownBlock variation={row} fmt={fmt} />}
+                        {open && (
+                          <BreakdownBlock
+                            variation={row}
+                            fmt={fmt}
+                            onClose={() => setExpandedId(null)}
+                          />
+                        )}
                         {editing && (
                           <OverrideEditor
                             key={`${row.id}-${row.calculation.finalPrice}`}

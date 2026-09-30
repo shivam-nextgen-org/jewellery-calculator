@@ -61,6 +61,10 @@ export function parsePricingDefaults(value: unknown): PricingDefaults {
       raw.goldRateLastUpdatedAt === undefined
         ? null
         : raw.goldRateLastUpdatedAt,
+    silverRateLastUpdatedAt:
+      raw.silverRateLastUpdatedAt === undefined
+        ? null
+        : raw.silverRateLastUpdatedAt,
   };
 }
 
@@ -145,6 +149,50 @@ export async function patchGold24kRateOnAllDefaults(
       ...current,
       gold24kRate,
       goldRateLastUpdatedAt,
+    };
+    const userId = String(row.userId);
+    await db.collection("AppSetting").updateOne(
+      { _id: row._id },
+      { $set: { value: next, updatedAt: now } },
+    );
+    try {
+      revalidateTag(pricingDefaultsTag(userId), { expire: 0 });
+    } catch {
+      // Outside a Next request (scripts) — Mongo write still succeeds.
+    }
+    updatedCount += 1;
+  }
+
+  return { updatedCount };
+}
+
+/**
+ * Patch only silverRate (+ optional last-updated) on every existing
+ * pricing_defaults AppSetting. Mirrors patchGold24kRateOnAllDefaults.
+ */
+export async function patchSilverRateOnAllDefaults(
+  silverRate: number,
+  silverRateLastUpdatedAt: string,
+): Promise<{ updatedCount: number }> {
+  if (!Number.isFinite(silverRate) || silverRate <= 0) {
+    throw new Error("Refusing to write invalid silverRate");
+  }
+
+  const db = await getDb();
+  const rows = await db
+    .collection("AppSetting")
+    .find({ key: PRICING_DEFAULTS_KEY })
+    .toArray();
+
+  let updatedCount = 0;
+  const now = new Date();
+
+  for (const row of rows) {
+    const current = parsePricingDefaults(row.value);
+    const next: PricingDefaults = {
+      ...current,
+      silverRate,
+      silverRateLastUpdatedAt,
     };
     const userId = String(row.userId);
     await db.collection("AppSetting").updateOne(

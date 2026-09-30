@@ -24,6 +24,7 @@ const COLOR_LABELS: Record<GoldColorOption, string> = {
   yellow: "Yellow Gold",
   white: "White Gold",
   rose: "Rose Gold",
+  sterling: "Sterling Silver",
 };
 
 const DIAMOND_TYPE_LABELS: Record<DiamondTypeOption, string> = {
@@ -31,6 +32,17 @@ const DIAMOND_TYPE_LABELS: Record<DiamondTypeOption, string> = {
   "lab-grown": "Lab Grown",
   moissanite: "Moissanite",
 };
+
+// Silver purities price off the silver base rate; everything else off gold 24K.
+const SILVER_PURITIES: GoldPurityOption[] = ["925", "958", "999"];
+
+function baseRateForPurity(
+  purity: GoldPurityOption,
+  gold24kRate: PricingSessionInput["gold24kRate"],
+  silverRate: PricingSessionInput["silverRate"],
+) {
+  return SILVER_PURITIES.includes(purity) ? silverRate : gold24kRate;
+}
 
 export function countVariations(
   metals: GoldMetalOption[],
@@ -63,6 +75,7 @@ export function generateVariationSpecs(
   diamondRateNatural: PricingSessionInput["diamondRateNatural"],
   diamondRateLabGrown: PricingSessionInput["diamondRateLabGrown"],
   diamondRateMoissanite: PricingSessionInput["diamondRateMoissanite"] = 0,
+  silverRate: PricingSessionInput["silverRate"] = 0,
 ): VariationSpec[] {
   const specs: VariationSpec[] = [];
   const types =
@@ -73,7 +86,8 @@ export function generateVariationSpecs(
       for (const color of colors) {
         for (const diamondType of types) {
           const percent = purityPercentages[purity] ?? 0;
-          const ratePerGram = calculatePurityRatePerGram(gold24kRate, percent);
+          const baseRate = baseRateForPurity(purity, gold24kRate, silverRate);
+          const ratePerGram = calculatePurityRatePerGram(baseRate, percent);
           const diamondRate = rateForDiamondType(
             diamondType,
             diamondRateNatural,
@@ -117,6 +131,7 @@ export function calculateAllVariations(
     session.diamondRateNatural,
     session.diamondRateLabGrown,
     session.diamondRateMoissanite ?? 0,
+    session.silverRate ?? 0,
   );
 
   return specs.map((spec) => {

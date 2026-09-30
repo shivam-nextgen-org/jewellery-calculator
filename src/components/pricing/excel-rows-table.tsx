@@ -136,41 +136,45 @@ export function ExcelRowsTable({
             </button>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">Sheet row</span>
-          <Input
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={rowFrom}
-            onChange={(e) => {
-              setRowFrom(e.target.value);
-              setPage(0);
-            }}
-            placeholder="From"
-            className="h-8 w-20"
-            aria-label="Filter from sheet row"
-          />
-          <span className="text-xs text-muted-foreground">–</span>
-          <Input
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={rowTo}
-            onChange={(e) => {
-              setRowTo(e.target.value);
-              setPage(0);
-            }}
-            placeholder="To"
-            className="h-8 w-20"
-            aria-label="Filter to sheet row"
-          />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+          <span className="w-full text-xs text-muted-foreground sm:w-auto">
+            Sheet row
+          </span>
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={rowFrom}
+              onChange={(e) => {
+                setRowFrom(e.target.value);
+                setPage(0);
+              }}
+              placeholder="From"
+              className="h-8 w-full min-w-0 sm:w-20"
+              aria-label="Filter from sheet row"
+            />
+            <span className="shrink-0 text-xs text-muted-foreground">–</span>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={rowTo}
+              onChange={(e) => {
+                setRowTo(e.target.value);
+                setPage(0);
+              }}
+              placeholder="To"
+              className="h-8 w-full min-w-0 sm:w-20"
+              aria-label="Filter to sheet row"
+            />
+          </div>
           {hasFilters ? (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 px-2 text-xs"
+              className="h-8 shrink-0 px-2 text-xs"
               onClick={clearFilters}
             >
               Clear filters
@@ -190,7 +194,9 @@ export function ExcelRowsTable({
               <th className="px-3 py-2 font-medium text-right">Gross</th>
               <th className="px-3 py-2 font-medium text-right">Net</th>
               <th className="px-3 py-2 font-medium text-right">Dia Wt</th>
-              <th className="px-2 py-2 font-medium text-center">Open</th>
+              <th className="sticky right-0 z-20 border-l border-border bg-surface-elevated px-2 py-2 text-center font-medium">
+                Open
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -246,7 +252,12 @@ export function ExcelRowsTable({
                     <td className="px-3 py-2 text-right tabular-nums">
                       {row.data.diamondWeight || "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center">
+                    <td
+                      className={cn(
+                        "sticky right-0 z-10 border-l border-border/60 px-2 py-1.5 text-center",
+                        selected ? "bg-[#efe3cf]" : "bg-surface",
+                      )}
+                    >
                       <Button
                         type="button"
                         size="icon"

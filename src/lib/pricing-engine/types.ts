@@ -104,6 +104,8 @@ export interface PricingSessionInput {
   netWeight: DecimalInput;
   diamondWeight: DecimalInput;
   gold24kRate: DecimalInput;
+  /** Pure (999) silver rate ₹/gram — used for silver purities (925/958/999). */
+  silverRate: DecimalInput;
   purityPercentages: Partial<Record<GoldPurityOption, DecimalInput>>;
   metals: GoldMetalOption[];
   purities: GoldPurityOption[];

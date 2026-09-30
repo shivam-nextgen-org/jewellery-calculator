@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { convertFromInr } from "@/lib/fx/format-money";
 import type { SupportedCurrency } from "@/lib/fx/currencies";
 import { toMoneyNumber } from "@/lib/pricing-engine/decimal";
@@ -30,44 +30,30 @@ export function buildVariationExportRows(
   meta: VariationExportMeta,
 ): Record<string, string | number>[] {
   const c = meta.currency;
-  const rateKey = `Gold Rate (${c})`;
-  const goldKey = `Gold (${c})`;
-  const diaKey = `Diamond (${c})`;
-  const makingKey = `Making (${c})`;
-  const otherKey = `Other (${c})`;
-  const finalKey = `Final (${c})`;
 
+  // Columns mirror the on-screen "Variation prices" table exactly — same
+  // headers, same order.
   return variations.map((row) => ({
     Variation: row.label,
     "Metal / Purity": `${row.metalLabel} · ${row.purity}`,
     Color: row.colorLabel.replace(/ Gold$/, ""),
     Diamond: row.diamondTypeLabel,
-    "Net Wt (g)": meta.netWeight,
-    [rateKey]: moneyInDisplayCurrency(row.goldRatePerGram, c, meta.rates),
-    [goldKey]: moneyInDisplayCurrency(row.calculation.goldPrice, c, meta.rates),
-    "Dia Wt (CT)": meta.diamondWeight,
-    [diaKey]: moneyInDisplayCurrency(
+    "Net Wt": meta.netWeight,
+    "Metal Rate": moneyInDisplayCurrency(row.goldRatePerGram, c, meta.rates),
+    "Metal ₹": moneyInDisplayCurrency(row.calculation.goldPrice, c, meta.rates),
+    "Dia Wt": meta.diamondWeight,
+    "Diamond ₹": moneyInDisplayCurrency(
       row.calculation.diamondFinalPrice,
       c,
       meta.rates,
     ),
-    [makingKey]: moneyInDisplayCurrency(
-      row.calculation.makingCharge,
-      c,
-      meta.rates,
-    ),
-    [otherKey]: moneyInDisplayCurrency(
+    Making: moneyInDisplayCurrency(row.calculation.makingCharge, c, meta.rates),
+    Other: moneyInDisplayCurrency(
       row.calculation.otherChargesTotal,
       c,
       meta.rates,
     ),
-    [finalKey]: moneyInDisplayCurrency(
-      row.calculation.finalPrice,
-      c,
-      meta.rates,
-    ),
-    Currency: c,
-    "Manual Override": row.hasManualOverride ? "Yes" : "No",
+    Final: moneyInDisplayCurrency(row.calculation.finalPrice, c, meta.rates),
   }));
 }
 
@@ -76,25 +62,10 @@ export function buildVariationWorkbookBuffer(
   meta: VariationExportMeta,
 ): ArrayBuffer {
   const rows = buildVariationExportRows(variations, meta);
-  const exportedAt =
-    meta.exportedAt ?? new Date().toISOString();
 
-  const summaryAoa: (string | number)[][] = [
-    ["Field", "Value"],
-    ["Design No", meta.designNo],
-    ["Category", meta.category],
-    ["Net Weight (g)", meta.netWeight],
-    ["Diamond Weight (CT)", meta.diamondWeight],
-    ["Variations", variations.length],
-    ["Currency", meta.currency],
-    ["Exported At (UTC)", exportedAt],
-  ];
-
+  // Single sheet that mirrors the on-screen "Variation prices" table exactly —
+  // same columns, same order, no extra summary sheet.
   const workbook = XLSX.utils.book_new();
-  const summarySheet = XLSX.utils.aoa_to_sheet(summaryAoa);
-  summarySheet["!cols"] = [{ wch: 22 }, { wch: 36 }];
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
-
   const pricesSheet =
     rows.length > 0
       ? XLSX.utils.json_to_sheet(rows)
@@ -103,6 +74,19 @@ export function buildVariationWorkbookBuffer(
     pricesSheet["!cols"] = Object.keys(rows[0]!).map((key) => ({
       wch: Math.min(28, Math.max(12, key.length + 2)),
     }));
+
+    // Style the header row (row 0): light green background + bold black font.
+    const headerStyle = {
+      font: { bold: true, color: { rgb: "000000" } },
+      fill: { patternType: "solid", fgColor: { rgb: "C6EFCE" } },
+      alignment: { vertical: "center" },
+    };
+    const range = XLSX.utils.decode_range(pricesSheet["!ref"] as string);
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const addr = XLSX.utils.encode_cell({ r: 0, c: col });
+      const cell = pricesSheet[addr];
+      if (cell) cell.s = headerStyle;
+    }
   }
   XLSX.utils.book_append_sheet(workbook, pricesSheet, "Variation prices");
 
