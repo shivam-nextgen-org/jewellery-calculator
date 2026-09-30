@@ -11,6 +11,7 @@
  *        - public/*                      -> deploy/atelier-vps/public        (static assets)
  *        - tessdata/*                    -> deploy/atelier-vps/tessdata       (OCR language data)
  *        - tesseract.js (+ full dep tree) -> OCR core/wasm that tracing trims
+ *        - node-cron (+ deps)            -> instrumentation crons (external + dynamic import)
  *        - prisma/schema.prisma          -> for optional db:push / db:seed on the VPS
  *        - node_modules/.prisma          -> generated Prisma client engine (safety net)
  *        - node_modules/@prisma/client   -> Prisma client (safety net)
@@ -20,6 +21,7 @@
  * On the VPS:   cd atelier-vps  &&  node server.js
  * --------------------------------------------------------------------------
  */
+
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -52,6 +54,45 @@ function copyFile(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(src, dest);
   return true;
+}
+
+/** Recursively list files under `dir` (absolute paths). */
+function listFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listFiles(full));
+    else out.push(full);
+  }
+  return out;
+}
+
+/**
+ * Next standalone does NOT include .next/static. If that copy is missing or
+ * incomplete, the HTML still references hashed CSS/JS and the VPS returns
+ * 500 for those URLs while other (cached) chunks may still 200.
+ */
+function assertStaticAssets(staticDest) {
+  const files = listFiles(staticDest);
+  const css = files.filter((f) => f.endsWith(".css"));
+  const js = files.filter((f) => f.endsWith(".js"));
+  if (css.length === 0 || js.length === 0) {
+    console.error(
+      `\n[deploy] ERROR: .next/static copy looks incomplete (css=${css.length}, js=${js.length}).`,
+    );
+    console.error(
+      "         Without hashed CSS/JS under deploy/atelier-vps/.next/static/chunks/,",
+    );
+    console.error(
+      "         the login page will render unstyled and those assets return 500 on the VPS.",
+    );
+    process.exit(1);
+  }
+  log(`verified .next/static: ${css.length} css, ${js.length} js (${files.length} files total)`);
+  for (const f of css) {
+    log(`  css: ${path.relative(staticDest, f)}`);
+  }
 }
 
 const SRC_NM = path.join(ROOT, "node_modules");
@@ -155,8 +196,16 @@ copyDir(standalone, OUT);
 log("+ standalone server + traced node_modules");
 
 // 2b. Static build output (hashed CSS/JS chunks) — NOT copied by Next automatically
-copyDir(path.join(ROOT, ".next", "static"), path.join(OUT, ".next", "static"));
+const staticSrc = path.join(ROOT, ".next", "static");
+const staticDest = path.join(OUT, ".next", "static");
+if (!copyDir(staticSrc, staticDest)) {
+  console.error(
+    `\n[deploy] ERROR: ${path.relative(ROOT, staticSrc)} missing after build.`,
+  );
+  process.exit(1);
+}
 log("+ .next/static (css / js / chunks)");
+assertStaticAssets(staticDest);
 
 // 2c. public assets — NOT copied by Next automatically
 if (copyDir(path.join(ROOT, "public"), path.join(OUT, "public"))) {
@@ -179,6 +228,18 @@ if (copyDir(path.join(ROOT, "tessdata"), path.join(OUT, "tessdata"))) {
     log(`+ tesseract.js + deps (${n} packages incl. tesseract.js-core, wasm-feature-detect)`);
   } else {
     log("! tesseract.js not found in node_modules — OCR may fail on the VPS.");
+  }
+}
+
+// 2d-ter. node-cron — used by instrumentation.ts via dynamic import +
+// serverExternalPackages, so standalone tracing often omits it. Without this
+// copy the VPS dies on boot: "Cannot find package 'node-cron'".
+{
+  const n = copyPackageWithDeps("node-cron");
+  if (n > 0) {
+    log(`+ node-cron + deps (${n} packages)`);
+  } else {
+    log("! node-cron not found in node_modules — cron / server prepare will fail on the VPS.");
   }
 }
 
@@ -210,6 +271,20 @@ fs.writeFileSync(
     "# Atelier — VPS deploy bundle",
     "",
     "This folder is fully self-contained. Copy it to your VPS and run it.",
+    "",
+    "## Critical: replace the WHOLE folder",
+    "Do NOT merge into an old `atelier-vps` directory. Delete/rename the old",
+    "folder, then upload this new one. A partial copy leaves HTML pointing at",
+    "hashed CSS/JS that are missing → unstyled login + 500 on `/_next/static/...`.",
+    "",
+    "After upload, confirm CSS exists on the VPS:",
+    "",
+    "```bash",
+    "ls .next/static/chunks/*.css",
+    "```",
+    "",
+    "Then restart the process (pm2 restart atelier) and purge Cloudflare cache",
+    "if the site sits behind Cloudflare.",
     "",
     "## Requirements on the VPS",
     "- Node.js (same major version used to build, Node 20+ recommended)",
@@ -243,4 +318,5 @@ fs.writeFileSync(
 );
 
 log(`DONE. Bundle ready: ${OUT}`);
-log("Copy that folder to the VPS and run: node server.js");
+log("Replace the WHOLE atelier-vps folder on the VPS (do not merge), then:");
+log("  PORT=3000 HOSTNAME=0.0.0.0 node server.js   # or: pm2 restart atelier");
