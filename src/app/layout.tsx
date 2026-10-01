@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AppShell } from "@/components/layout/app-shell";
 import { ClientRoot } from "@/components/layout/client-root";
 import { getSession } from "@/lib/auth/session";
+import { getSecurityConfig } from "@/lib/security/config";
 import { SUPPRESS_EXTENSION_CONSOLE } from "@/lib/suppress-extension-console";
 import "./globals.css";
 
@@ -17,6 +18,8 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const user = await getSession();
+  const securityCenterEnabled =
+    getSecurityConfig().flags.adminSecurityCenter === "on";
   return (
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
       <head>
@@ -45,7 +48,9 @@ export default async function RootLayout({
         suppressHydrationWarning
       >
         <ClientRoot>
-          <AppShell user={user}>{children}</AppShell>
+          <AppShell user={user} securityCenterEnabled={securityCenterEnabled}>
+            {children}
+          </AppShell>
         </ClientRoot>
       </body>
     </html>

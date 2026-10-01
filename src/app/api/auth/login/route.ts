@@ -1,8 +1,21 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import type { Db } from "mongodb";
 import { getDb, idOf, type ObjectId } from "@/lib/mongo";
 import { createSession } from "@/lib/auth/session";
 import { verifyPassword } from "@/lib/auth/password";
 import { consumeLoginAttempt } from "@/lib/auth/rate-limit";
+import { runAfterResponse } from "@/lib/security/background";
+import { getSecurityConfig } from "@/lib/security/config";
+import { DEVICE_COOKIE } from "@/lib/security/device";
+import { normalizeCountry, recordSecurityEvent } from "@/lib/security/events";
+import { evaluateCustomerRiskSafely } from "@/lib/security/risk";
+import {
+  applyLoginSecurity,
+  loginSecurityGate,
+  setLoginSecurityCookies,
+  type LoginSecurityResult,
+} from "@/lib/security/login";
 
 type UserRow = {
   _id: ObjectId;
@@ -41,8 +54,9 @@ export async function POST(request: Request) {
   }
 
   let user: UserRow | null;
+  let db: Db;
   try {
-    const db = await getDb();
+    db = await getDb();
     user = (await db
       .collection("User")
       .findOne(
@@ -57,7 +71,8 @@ export async function POST(request: Request) {
           },
         },
       )) as UserRow | null;
-  } catch {
+  } catch (error) {
+    console.error("[login] database error:", error);
     return NextResponse.json(
       { error: "Cannot reach the database. Please try again." },
       { status: 503 },
@@ -65,6 +80,23 @@ export async function POST(request: Request) {
   }
 
   const valid = user ? await verifyPassword(password, user.passwordHash) : false;
+  const securityConfig = getSecurityConfig();
+  if (user && !valid && user.role === "USER" && securityConfig.flags.riskEngine !== "off") {
+    // I5: wrong password for an existing customer is a risk signal. Recorded
+    // after the response, so timing and the response are unchanged.
+    const userId = idOf(user._id);
+    runAfterResponse(async () => {
+      await recordSecurityEvent(db, {
+        type: "LOGIN_FAILED",
+        actorType: "USER",
+        actorId: userId,
+        userId,
+        ip,
+        reasonCodes: ["INVALID_PASSWORD"],
+      });
+      await evaluateCustomerRiskSafely(db, userId, securityConfig);
+    });
+  }
   if (!user || !valid) {
     return NextResponse.json(
       { error: "Invalid email or password." },
@@ -78,6 +110,45 @@ export async function POST(request: Request) {
     );
   }
 
+  // Additive security layer (I2): device registration + server session.
+  // No-op while SECURITY_DEVICE_TRUST_ENABLED=off (default).
+  const jar = await cookies();
+  const coarseGeo =
+    securityConfig.flags.trustedGeoHeader === "on"
+      ? normalizeCountry(request.headers.get("cf-ipcountry"))
+      : null;
+  let security: LoginSecurityResult | "error";
+  try {
+    security = await applyLoginSecurity(
+      db,
+      {
+        userId: idOf(user._id),
+        role: user.role,
+        rememberMe: remember,
+        deviceCookie: jar.get(DEVICE_COOKIE)?.value ?? null,
+        userAgent: request.headers.get("user-agent"),
+        ip,
+        coarseGeo,
+      },
+      securityConfig,
+    );
+  } catch {
+    security = "error";
+  }
+  // I5: re-evaluate risk from the events this login produced (after the
+  // response; fail-open; advisory only).
+  if (user.role === "USER" && securityConfig.flags.riskEngine !== "off") {
+    const userId = idOf(user._id);
+    runAfterResponse(() => evaluateCustomerRiskSafely(db, userId, securityConfig));
+  }
+  // Cookies first: a newly registered device keeps its cookie even if the
+  // login is then refused, so a retry reuses it instead of using a new slot.
+  setLoginSecurityCookies(jar, security, remember, securityConfig);
+  const gate = loginSecurityGate(security, securityConfig);
+  if (gate) {
+    return NextResponse.json({ error: gate.error }, { status: gate.status });
+  }
+
   await createSession(
     {
       id: idOf(user._id),
@@ -88,9 +159,13 @@ export async function POST(request: Request) {
     remember,
   );
 
+  const pendingDevice =
+    security !== "error" && security.kind === "ok" ? security.pendingDevice : null;
   return NextResponse.json({
     role: user.role,
     name: user.name,
     redirect: user.role === "SUPER_ADMIN" ? "/admin" : "/dashboard",
+    // I3: only present when this browser is waiting for approval.
+    ...(pendingDevice ? { device: { status: "PENDING_APPROVAL", ...pendingDevice } } : {}),
   });
 }

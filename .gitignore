@@ -44,3 +44,5 @@ yarn-error.log*
 next-env.d.ts
 
 # keep tessdata folder; large gz may be re-downloaded via npm run ocr:tessdata
+
+certificates

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/session";
 import { updateSilverRate } from "@/lib/services/silver-rate";
 
 export const runtime = "nodejs";
@@ -15,17 +14,14 @@ function cronSecretAuthorized(request: Request): boolean {
 }
 
 /**
- * Manual (logged-in USER) or cron (Bearer CRON_SECRET).
+ * Cron only (Bearer CRON_SECRET).
  * Always uses updateSilverRate() — never writes on failure.
  */
 export async function POST(request: Request) {
-  const isCron = cronSecretAuthorized(request);
-  if (!isCron) {
-    try {
-      await requireUser();
-    } catch {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  // Cron-only: the rate refreshes once a day; manual calls would burn the
+  // provider's quota and trigger 429s.
+  if (!cronSecretAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const result = await updateSilverRate();

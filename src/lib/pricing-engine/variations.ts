@@ -44,6 +44,27 @@ function baseRateForPurity(
   return SILVER_PURITIES.includes(purity) ? silverRate : gold24kRate;
 }
 
+const SILVER_COLORS: GoldColorOption[] = ["sterling"];
+
+/**
+ * Only real metal/purity/colour pairings become variations:
+ *   silver → silver purities (925/958/999) and Sterling Silver colour
+ *   gold (and platinum) → karat purities and Yellow/White/Rose colours
+ * A mixed gold + silver selection therefore never produces rows such as
+ * "Gold 925 Yellow" or "Gold 22K Sterling Silver".
+ */
+export function isValidCombination(
+  metal: GoldMetalOption,
+  purity: GoldPurityOption,
+  color: GoldColorOption,
+): boolean {
+  const silverMetal = metal === "silver";
+  return (
+    SILVER_PURITIES.includes(purity) === silverMetal &&
+    SILVER_COLORS.includes(color) === silverMetal
+  );
+}
+
 export function countVariations(
   metals: GoldMetalOption[],
   purities: GoldPurityOption[],
@@ -51,7 +72,15 @@ export function countVariations(
   diamondTypes: DiamondTypeOption[],
 ): number {
   const dTypes = diamondTypes.length > 0 ? diamondTypes.length : 1;
-  return metals.length * purities.length * colors.length * dTypes;
+  let combos = 0;
+  for (const metal of metals) {
+    for (const purity of purities) {
+      for (const color of colors) {
+        if (isValidCombination(metal, purity, color)) combos += 1;
+      }
+    }
+  }
+  return combos * dTypes;
 }
 
 function rateForDiamondType(
@@ -84,6 +113,7 @@ export function generateVariationSpecs(
   for (const metal of metals) {
     for (const purity of purities) {
       for (const color of colors) {
+        if (!isValidCombination(metal, purity, color)) continue;
         for (const diamondType of types) {
           const percent = purityPercentages[purity] ?? 0;
           const baseRate = baseRateForPurity(purity, gold24kRate, silverRate);

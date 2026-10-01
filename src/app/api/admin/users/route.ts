@@ -5,6 +5,7 @@ import {
   deleteAppUser,
   listAppUsers,
   setUserActive,
+  updateAppUser,
 } from "@/lib/auth/users";
 
 function fail(error: unknown) {
@@ -51,12 +52,21 @@ export async function PATCH(request: Request) {
     const body = (await request.json()) as {
       id?: string;
       isActive?: boolean;
+      name?: string;
     };
-    if (!body.id || typeof body.isActive !== "boolean") {
+    if (!body.id) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
-    const user = await setUserActive(body.id, body.isActive);
-    return NextResponse.json(user);
+    // Two shapes share this endpoint: a name edit, or an active toggle.
+    if (typeof body.name === "string") {
+      const user = await updateAppUser(body.id, { name: body.name });
+      return NextResponse.json(user);
+    }
+    if (typeof body.isActive === "boolean") {
+      const user = await setUserActive(body.id, body.isActive);
+      return NextResponse.json(user);
+    }
+    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   } catch (error) {
     return fail(error);
   }

@@ -5,7 +5,8 @@
  * Cron jobs only HTTP-call existing API routes.
  *
  * Schedules (Asia/Kolkata):
- * - Gold rate: 15 11 * * *  → 11:15 AM IST
+ * - Gold rate:   15 11 * * *  → 11:15 AM IST
+ * - Silver rate: 16 11 * * *  → 11:16 AM IST
  * - FX rates:  20 11 * * *  → 11:20 AM IST
  */
 export async function register() {
@@ -88,6 +89,26 @@ export async function register() {
     console.info(`[gold-rate] cron registered: 15 11 * * * (${timezone})`);
   } else {
     console.info("[gold-rate] cron disabled via GOLD_RATE_CRON_DISABLED=1");
+  }
+
+  if (process.env.SILVER_RATE_CRON_DISABLED !== "1") {
+    cron.schedule(
+      "16 11 * * *",
+      async () => {
+        try {
+          await postCron("/api/silver-rate/update", "silver-rate");
+        } catch (err) {
+          console.error(
+            "[silver-rate] daily cron exception — previous rate kept:",
+            err,
+          );
+        }
+      },
+      { timezone },
+    );
+    console.info(`[silver-rate] cron registered: 16 11 * * * (${timezone})`);
+  } else {
+    console.info("[silver-rate] cron disabled via SILVER_RATE_CRON_DISABLED=1");
   }
 
   if (process.env.FX_RATE_CRON_DISABLED !== "1") {

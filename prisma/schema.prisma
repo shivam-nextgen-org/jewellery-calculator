@@ -1,3 +1,10 @@
+// Security collections (SecurityDevice, SecuritySession, SecurityEvent,
+// SecurityAdminAction) are intentionally NOT modeled here: `prisma db push`
+// removes indexes it doesn't know about, and Prisma can't express the TTL
+// indexes that enforce retention. Their shapes live in
+// src/lib/security/collections.ts and their indexes in
+// src/lib/security/indexes.ts (npm run security:indexes).
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -20,9 +27,13 @@ enum GoldMetalCode {
 }
 
 enum GoldColorCode {
+  // Gold colours
   YELLOW
   WHITE
   ROSE
+  // Silver colour (Sterling Silver). Silver has a single colour; it must never
+  // be paired with a gold purity (karat) nor gold colours with 925/958/999.
+  SILVER
 }
 
 enum UserRole {
@@ -214,6 +225,8 @@ model JewelleryVariation {
   metal            String
   purity           String
   color            String
+  /// natural | lab-grown | moissanite. Null on rows saved before this field existed.
+  diamondType      String?
   label            String
   /// Locked final price at save time
   finalPrice       Float
@@ -227,7 +240,7 @@ model JewelleryVariation {
   calculationItems PricingCalculationItem[]
 
   @@index([productId])
-  @@unique([productId, metal, purity, color])
+  @@unique([productId, metal, purity, color, diamondType])
 }
 
 /// One pricing run snapshot — rates used at that moment are frozen here

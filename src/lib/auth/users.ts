@@ -1,5 +1,6 @@
 import { getDb, idOf, ObjectId, oid } from "@/lib/mongo";
 import { hashPassword, validatePassword } from "@/lib/auth/password";
+import { deleteSecurityRecordsForUser } from "@/lib/security/device-registry";
 
 function mapUser(row: {
   _id: ObjectId;
@@ -67,6 +68,26 @@ export async function createAppUser(input: {
   };
   await db.collection("User").insertOne(doc);
   return mapUser(doc);
+}
+
+export async function updateAppUser(id: string, input: { name: string }) {
+  const name = input.name.trim();
+  if (!name) throw new Error("Name is required.");
+  const db = await getDb();
+  const user = await db.collection("User").findOne({ _id: oid(id) });
+  if (!user || user.role !== "USER") {
+    throw new Error("User not found.");
+  }
+  await db
+    .collection("User")
+    .updateOne({ _id: oid(id) }, { $set: { name, updatedAt: new Date() } });
+  return {
+    id,
+    email: user.email as string,
+    name,
+    isActive: user.isActive as boolean,
+    createdAt: user.createdAt as Date,
+  };
 }
 
 export async function setUserActive(id: string, isActive: boolean) {
@@ -140,6 +161,9 @@ export async function deleteAppUser(id: string) {
     db.collection("OcrImport").deleteMany({ userId }),
     db.collection("AppSetting").deleteMany({ userId }),
     db.collection("ApiKey").deleteMany({ userId }),
+    // Devices, sessions and slot/enrollment state. Security events are kept
+    // for their retention period (audit trail).
+    deleteSecurityRecordsForUser(db, userId),
   ]);
 
   await db.collection("User").deleteOne({ _id: userId });

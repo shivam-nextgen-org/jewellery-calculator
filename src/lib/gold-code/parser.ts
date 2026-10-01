@@ -7,8 +7,9 @@ import type {
 /**
  * Jewellery metal-code parser.
  *
- * Gold:   G10Y → Gold / 10K / Yellow Gold  (G + karat + color)
- * Silver: S925 → Silver / 925              (S + millesimal, optional color)
+ * Gold:   G10Y → Gold / 10K / Yellow Gold     (G + karat + colour Y/W/R)
+ * Silver: S925 → Silver / 925 / Sterling Silver (S + millesimal; silver has
+ *         exactly one colour, so no colour suffix is used)
  *
  * Codes start with G (gold) or S (silver).
  */
@@ -89,7 +90,9 @@ export function parseGoldCode(
     };
   }
 
-  // Silver millesimal: S925, S999, S925W
+  // Silver millesimal: S925, S999 (a trailing colour letter is tolerated for
+  // backward-compatibility with old codes but ignored — silver is always
+  // Sterling Silver).
   const silverMatch = normalizedCode.match(/^S(\d{3})([YWR])?$/);
   if (silverMatch) {
     const fineness = silverMatch[1];
@@ -102,25 +105,17 @@ export function parseGoldCode(
       };
     }
 
-    const colorKey = (silverMatch[2] ?? "W").toUpperCase();
-    const colorRule = config.colorSuffixes[colorKey] ?? config.colorSuffixes.W;
-    const colorLabel =
-      colorKey === "Y"
-        ? "Yellow"
-        : colorKey === "R"
-          ? "Rose"
-          : "White";
-
+    // Silver has a single colour: Sterling Silver. Any legacy colour suffix
+    // (Y/W/R) on a silver code is ignored so we never produce a gold colour
+    // on a silver item (e.g. "Silver 925 Yellow").
     return {
       input,
-      normalizedCode: silverMatch[2]
-        ? `S${fineness}${colorKey}`
-        : `S${fineness}`,
+      normalizedCode: `S${fineness}`,
       metal: "silver",
       metalLabel: "Silver",
       purity,
-      color: colorRule.color,
-      colorLabel,
+      color: "sterling",
+      colorLabel: "Sterling Silver",
       ok: true,
     };
   }
@@ -217,19 +212,12 @@ export function buildMetalCodeFromParts(
   }
 
   if (/^sil/.test(metalText) || metalText === "s") {
+    // Silver colour is always Sterling Silver — ignore any colour column so a
+    // silver row never carries a gold colour.
     const digits = purityText.replace(/[^0-9]/g, "");
     const fineness =
       digits.length >= 3 ? digits.slice(0, 3) : digits.padStart(3, "0");
-    const colorLetter = /rose/i.test(colorText)
-      ? "R"
-      : /yellow/i.test(colorText)
-        ? "Y"
-        : /white/i.test(colorText)
-          ? "W"
-          : undefined;
-    return parseGoldCode(
-      colorLetter ? `S${fineness}${colorLetter}` : `S${fineness}`,
-    );
+    return parseGoldCode(`S${fineness}`);
   }
 
   if (!/^gol/.test(metalText) && metalText !== "g") {

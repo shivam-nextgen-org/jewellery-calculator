@@ -20,17 +20,30 @@ export async function getMongo(): Promise<MongoClient> {
       serverSelectionTimeoutMS: 8000,
       connectTimeoutMS: 8000,
     });
-    globalForMongo.mongoReady = client.connect().then((connected) => {
-      globalForMongo.mongoClient = connected;
-      return connected;
-    });
+    globalForMongo.mongoReady = client.connect().then(
+      (connected) => {
+        globalForMongo.mongoClient = connected;
+        return connected;
+      },
+      (error) => {
+        // Don't cache a failed connection: let the next request retry.
+        globalForMongo.mongoReady = undefined;
+        void client.close().catch(() => {});
+        throw error;
+      },
+    );
   }
   return globalForMongo.mongoReady;
 }
 
+/** Database name. Set DATABASE_NAME per environment (e.g. "atelier-prod"); defaults to "atelier". */
+export function databaseName(): string {
+  return process.env.DATABASE_NAME?.trim() || "atelier";
+}
+
 export async function getDb(): Promise<Db> {
   const client = await getMongo();
-  return client.db("atelier");
+  return client.db(databaseName());
 }
 
 export function oid(id: string) {

@@ -1,266 +1,330 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Plus, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { getSession } from "@/lib/auth/session";
+  ArrowRight,
+  Calculator,
+  FileSpreadsheet,
+  Gem,
+  ScanLine,
+  Settings2,
+  Sparkles,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AccessRestricted } from "@/components/security/access-restricted";
+import { getPageAccess } from "@/lib/auth/session";
 import { formatINR } from "@/lib/format";
-import { getDashboardStats, listProducts } from "@/lib/services/products";
-import { decimalToNumber } from "@/lib/services/settings";
+import { getPricingDefaults } from "@/lib/services/settings";
+import type { GoldPurityOption, PricingDefaults } from "@/types/jewellery";
 
 export const dynamic = "force-dynamic";
 
-function formatUpdated(iso: Date) {
-  return iso.toLocaleString("en-IN", {
+const GOLD_KARATS: GoldPurityOption[] = ["22K", "18K", "14K", "10K"];
+const SILVER_GRADES: GoldPurityOption[] = ["958", "925"];
+
+const inr = (value: number) => formatINR(value, { maximumFractionDigits: 0 });
+
+function perGram(base: number, percent: number | undefined) {
+  return percent ? Math.round((base * percent) / 100) : 0;
+}
+
+function updatedLabel(iso: string | null | undefined) {
+  if (!iso) return "Set manually in Settings";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Set manually in Settings";
+  return `Market rate · updated ${date.toLocaleString("en-IN", {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  })}`;
 }
 
-export default function DashboardPage() {
+function greeting() {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-IN", { hour: "numeric", hour12: false, timeZone: "Asia/Kolkata" }).format(new Date()),
+  );
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+export default async function DashboardPage() {
+  const access = await getPageAccess("USER");
+  if (access.kind === "denied") return <AccessRestricted device={access.device} />;
+  const name = access.kind === "ok" ? access.user.name.split(" ")[0] : null;
+  const today = new Date().toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "Asia/Kolkata",
+  });
+
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.12em] text-champagne">
-            Dashboard
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-charcoal sm:text-3xl">
-            Atelier overview
-          </h1>
-          <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">
-            Image to final prices in one workspace. Live from database.
-          </p>
+      {/* Hero */}
+      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-charcoal px-6 py-8 text-ivory sm:px-10 sm:py-10">
+        <div
+          className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-champagne/25 blur-3xl"
+          aria-hidden="true"
+        />
+        <div
+          className="pointer-events-none absolute -bottom-32 left-1/3 h-64 w-64 rounded-full bg-champagne-soft/10 blur-3xl"
+          aria-hidden="true"
+        />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.2em] text-champagne-soft">{today}</p>
+            <h1 className="mt-2 font-display text-3xl font-medium tracking-tight sm:text-4xl">
+              {greeting()}
+              {name ? `, ${name}` : ""}.
+            </h1>
+            <p className="mt-3 max-w-xl text-sm leading-relaxed text-ivory/70">
+              Today&apos;s pricing rates at a glance. Every calculation in the
+              workspace uses these numbers.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button asChild variant="champagne" size="lg">
+              <Link href="/pricing" prefetch>
+                <Calculator />
+                New pricing
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="lg"
+              variant="outline"
+              className="border-ivory/25 bg-transparent text-ivory hover:bg-ivory/10 hover:text-ivory"
+            >
+              <Link href="/settings" prefetch>
+                <Settings2 />
+                Update rates
+              </Link>
+            </Button>
+          </div>
         </div>
-        <Button asChild variant="champagne" size="lg">
-          <Link href="/pricing" prefetch>
-            <Plus />
-            New Jewellery Pricing
-          </Link>
-        </Button>
-      </div>
+      </section>
 
-      <Suspense fallback={<DashboardDataSkeleton />}>
-        <DashboardData />
+      <Suspense fallback={<RateBoardSkeleton />}>
+        <RateBoard userId={access.kind === "ok" ? access.user.id : null} />
       </Suspense>
+
+      <Workflow />
     </div>
   );
 }
 
-/** Async data section — streamed so the page frame shows instantly. */
-async function DashboardData() {
-  let stats = {
-    totalDesigns: 0,
-    todaysImports: 0,
-    calculatedProducts: 0,
-    totalVariations: 0,
-    current24kGoldRate: 0,
-  };
-  let recent: Array<{
-    id: string;
-    designNo: string;
-    category: string;
-    variationCount: number;
-    priceMin: number;
-    priceMax: number;
-    updatedAt: string;
-  }> = [];
-
+async function RateBoard({ userId }: { userId: string | null }) {
+  let defaults: PricingDefaults | null = null;
   try {
-    const session = await getSession();
-    if (!session) throw new Error("Unauthorized");
-    const [dashboardStats, recentProducts] = await Promise.all([
-      getDashboardStats(session.id),
-      listProducts(session.id, 5),
-    ]);
-    stats = dashboardStats;
-    recent = recentProducts.map((p) => ({
-      id: p.id,
-      designNo: p.designNo,
-      category: p.category,
-      variationCount: p.variationCount,
-      priceMin: p.priceMin ? decimalToNumber(p.priceMin) : 0,
-      priceMax: p.priceMax ? decimalToNumber(p.priceMax) : 0,
-      updatedAt: formatUpdated(p.updatedAt),
-    }));
+    if (userId) defaults = await getPricingDefaults(userId);
   } catch {
-    // empty state if DB unavailable
+    defaults = null;
+  }
+  if (!defaults) {
+    return (
+      <p role="alert" className="rounded-xl border border-border bg-surface px-5 py-4 text-sm text-muted-foreground">
+        Rates couldn&apos;t be loaded right now. Refresh the page, or check Settings.
+      </p>
+    );
   }
 
-  const tiles = [
-    { label: "Total Designs", value: String(stats.totalDesigns) },
-    { label: "Today's Imports", value: String(stats.todaysImports) },
-    {
-      label: "Calculated Products",
-      value: String(stats.calculatedProducts),
-    },
-    { label: "Total Variations", value: String(stats.totalVariations) },
+  const pct = defaults.purityPercentages;
+  const gold = defaults.gold24kRate;
+  const silver = defaults.silverRate;
+  const natural = defaults.defaultDiamondRateNatural || defaults.defaultDiamondRate;
+  const diamonds = [
+    { label: "Natural diamond", rate: natural, hint: "Mined" },
+    { label: "Lab-grown diamond", rate: defaults.defaultDiamondRateLabGrown, hint: "CVD / HPHT" },
+    { label: "Moissanite", rate: defaults.defaultDiamondRateMoissanite, hint: "Simulant" },
   ];
 
   return (
-    <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {tiles.map((tile) => (
-          <Card
-            key={tile.label}
-            className="transition-transform duration-200 hover:-translate-y-0.5"
-          >
-            <CardHeader className="pb-2">
-              <CardDescription>{tile.label}</CardDescription>
-              <CardTitle className="text-3xl font-semibold tabular-nums tracking-tight">
-                {tile.value}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-        ))}
+    <section aria-labelledby="rates-heading" className="space-y-4">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 id="rates-heading" className="text-lg font-semibold tracking-tight text-charcoal">
+            Current rates
+          </h2>
+          <p className="text-sm text-muted-foreground">Per gram for metals, per carat for stones.</p>
+        </div>
+        <Link
+          href="/settings"
+          prefetch
+          className="hidden items-center gap-1 text-sm font-medium text-champagne hover:text-charcoal sm:inline-flex"
+        >
+          Edit rates <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="overflow-hidden lg:col-span-1">
-          <CardHeader>
-            <div className="flex items-center gap-2 text-champagne">
-              <Sparkles className="h-4 w-4" />
-              <CardDescription className="text-champagne">
-                Live rate
-              </CardDescription>
-            </div>
-            <CardTitle className="text-2xl font-semibold tracking-tight">
-              Current 24K Gold
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-4xl font-semibold tabular-nums tracking-tight text-charcoal">
-              {formatINR(stats.current24kGoldRate, {
-                maximumFractionDigits: 0,
-              })}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">per gram</p>
-            <p className="mt-4 text-xs text-muted-foreground">
-              From Settings → Pricing defaults.
-            </p>
-          </CardContent>
-        </Card>
+        {/* Gold */}
+        <RateCard
+          tone="gold"
+          eyebrow="Gold · 24K"
+          value={inr(gold)}
+          unit="per gram"
+          footnote={updatedLabel(defaults.goldRateLastUpdatedAt)}
+        >
+          {GOLD_KARATS.map((karat) => (
+            <RateRow key={karat} label={karat} sub={pct[karat] ? `${pct[karat]}%` : undefined} value={inr(perGram(gold, pct[karat]))} />
+          ))}
+        </RateCard>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex-row items-center justify-between space-y-0">
-            <div>
-              <CardTitle>Recent designs</CardTitle>
-              <CardDescription>Latest priced jewellery</CardDescription>
-            </div>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/products" prefetch>
-                View all
-                <ArrowUpRight />
-              </Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            {recent.length === 0 ? (
-              <p className="px-5 py-8 text-sm text-muted-foreground">
-                No saved products yet. Start a pricing session.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[480px] text-left text-sm">
-                  <thead>
-                    <tr className="border-y border-border text-xs uppercase tracking-[0.06em] text-muted-foreground">
-                      <th className="px-5 py-3 font-medium">Design</th>
-                      <th className="px-5 py-3 font-medium">Category</th>
-                      <th className="px-5 py-3 font-medium">Vars</th>
-                      <th className="px-5 py-3 font-medium text-right">
-                        Range
-                      </th>
-                      <th className="px-5 py-3 font-medium text-right">
-                        Updated
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recent.map((design) => (
-                      <tr
-                        key={design.id}
-                        className="border-b border-border/70 last:border-0 hover:bg-ivory-deep/40"
-                      >
-                        <td className="px-5 py-3.5 font-medium">
-                          {design.designNo}
-                        </td>
-                        <td className="px-5 py-3.5 text-muted-foreground">
-                          {design.category}
-                        </td>
-                        <td className="px-5 py-3.5 tabular-nums">
-                          {design.variationCount}
-                        </td>
-                        <td className="px-5 py-3.5 text-right tabular-nums">
-                          {formatINR(design.priceMin, {
-                            maximumFractionDigits: 0,
-                          })}{" "}
-                          –{" "}
-                          {formatINR(design.priceMax, {
-                            maximumFractionDigits: 0,
-                          })}
-                        </td>
-                        <td className="px-5 py-3.5 text-right text-muted-foreground">
-                          {design.updatedAt}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* Silver */}
+        <RateCard
+          tone="silver"
+          eyebrow="Silver · 999"
+          value={inr(silver)}
+          unit="per gram"
+          footnote={updatedLabel(defaults.silverRateLastUpdatedAt)}
+        >
+          {SILVER_GRADES.map((grade) => (
+            <RateRow
+              key={grade}
+              label={grade === "925" ? "925 Sterling" : grade}
+              sub={pct[grade] ? `${pct[grade]}%` : undefined}
+              value={inr(perGram(silver, pct[grade]))}
+            />
+          ))}
+        </RateCard>
+
+        {/* Diamonds */}
+        <article className="flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-surface shadow-[0_1px_2px_rgba(26,24,22,0.04)]">
+          <div className="h-1 bg-gradient-to-r from-sky-200 via-indigo-200 to-violet-200" aria-hidden="true" />
+          <div className="flex items-center gap-2 px-6 pt-5 text-sm font-medium text-charcoal-muted">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-50 text-indigo-500">
+              <Gem className="h-4 w-4" aria-hidden="true" />
+            </span>
+            Diamonds &amp; stones
+          </div>
+          <ul className="flex-1 space-y-1 px-3 py-3">
+            {diamonds.map((d) => (
+              <li key={d.label} className="flex items-center justify-between rounded-lg px-3 py-3 hover:bg-ivory-deep/50">
+                <span>
+                  <span className="block text-sm font-medium text-charcoal">{d.label}</span>
+                  <span className="block text-xs text-muted-foreground">{d.hint}</span>
+                </span>
+                <span className="text-right">
+                  <span className="block font-display text-xl font-medium tabular-nums text-charcoal">
+                    {d.rate ? inr(d.rate) : "—"}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">per carat</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="border-t border-border/70 px-6 py-3 text-xs text-muted-foreground">
+            Default diamond discount: {defaults.defaultDiamondDiscount}%
+          </p>
+        </article>
       </div>
-    </>
+    </section>
   );
 }
 
-/** Lightweight skeleton shown instantly while the data streams in. */
-function DashboardDataSkeleton() {
+function RateCard({
+  tone,
+  eyebrow,
+  value,
+  unit,
+  footnote,
+  children,
+}: {
+  tone: "gold" | "silver";
+  eyebrow: string;
+  value: string;
+  unit: string;
+  footnote: string;
+  children: React.ReactNode;
+}) {
+  const gold = tone === "gold";
   return (
-    <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i}>
-            <CardHeader className="pb-2">
-              <div className="h-4 w-24 animate-pulse rounded bg-ivory-deep" />
-              <div className="mt-2 h-8 w-16 animate-pulse rounded bg-ivory-deep" />
-            </CardHeader>
-          </Card>
-        ))}
+    <article className="flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-surface shadow-[0_1px_2px_rgba(26,24,22,0.04)]">
+      <div
+        className={gold ? "h-1 bg-gradient-to-r from-champagne-soft via-champagne to-amber-300" : "h-1 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200"}
+        aria-hidden="true"
+      />
+      <div className="px-6 pt-5">
+        <div className="flex items-center gap-2 text-sm font-medium text-charcoal-muted">
+          <span
+            className={
+              gold
+                ? "h-3 w-3 rounded-full bg-gradient-to-br from-amber-200 to-champagne ring-2 ring-champagne-muted"
+                : "h-3 w-3 rounded-full bg-gradient-to-br from-slate-100 to-slate-400 ring-2 ring-slate-200"
+            }
+            aria-hidden="true"
+          />
+          {eyebrow}
+        </div>
+        <p className="mt-3 font-display text-4xl font-medium tabular-nums tracking-tight text-charcoal">{value}</p>
+        <p className="text-xs text-muted-foreground">{unit}</p>
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <div className="h-4 w-20 animate-pulse rounded bg-ivory-deep" />
-            <div className="mt-2 h-8 w-40 animate-pulse rounded bg-ivory-deep" />
-          </CardHeader>
-          <CardContent>
-            <div className="h-10 w-32 animate-pulse rounded bg-ivory-deep" />
-          </CardContent>
-        </Card>
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="h-5 w-32 animate-pulse rounded bg-ivory-deep" />
-          </CardHeader>
-          <CardContent className="space-y-3 p-5">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-6 w-full animate-pulse rounded bg-ivory-deep"
-              />
-            ))}
-          </CardContent>
-        </Card>
+      <ul className="mt-4 flex-1 divide-y divide-border/60 border-t border-border/60 px-6">{children}</ul>
+      <p className="flex items-center gap-1.5 border-t border-border/70 px-6 py-3 text-xs text-muted-foreground">
+        <Sparkles className="h-3.5 w-3.5 text-champagne" aria-hidden="true" />
+        {footnote}
+      </p>
+    </article>
+  );
+}
+
+function RateRow({ label, sub, value }: { label: string; sub?: string; value: string }) {
+  return (
+    <li className="flex items-center justify-between py-2.5 text-sm">
+      <span className="text-charcoal">
+        {label}
+        {sub ? <span className="ml-2 text-xs text-muted-foreground">{sub}</span> : null}
+      </span>
+      <span className="font-medium tabular-nums text-charcoal">{value}</span>
+    </li>
+  );
+}
+
+const STEPS = [
+  { icon: ScanLine, title: "Import", text: "Scan a design sheet or upload your Excel file." },
+  { icon: Calculator, title: "Price", text: "Pick metals, purities, colours and stones. Every variation is priced." },
+  { icon: FileSpreadsheet, title: "Export", text: "Download the full price table as Excel, in any currency." },
+];
+
+function Workflow() {
+  return (
+    <section aria-labelledby="workflow-heading" className="rounded-2xl border border-border/80 bg-surface-elevated px-6 py-6 sm:px-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 id="workflow-heading" className="text-lg font-semibold tracking-tight text-charcoal">
+          From design sheet to price list
+        </h2>
+        <Link href="/pricing" prefetch className="inline-flex items-center gap-1 text-sm font-medium text-champagne hover:text-charcoal">
+          Open workspace <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
       </div>
-    </>
+      <ol className="mt-5 grid gap-4 sm:grid-cols-3">
+        {STEPS.map((step, i) => {
+          const Icon = step.icon;
+          return (
+            <li key={step.title} className="flex gap-4 rounded-xl border border-border/70 bg-surface p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-champagne-muted/60 text-charcoal">
+                <Icon className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block text-xs font-medium uppercase tracking-[0.14em] text-champagne">Step {i + 1}</span>
+                <span className="block text-sm font-semibold text-charcoal">{step.title}</span>
+                <span className="mt-1 block text-sm text-muted-foreground">{step.text}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function RateBoardSkeleton() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-3">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="h-72 animate-pulse rounded-2xl border border-border/70 bg-surface" />
+      ))}
+    </div>
   );
 }

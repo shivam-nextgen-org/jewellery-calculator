@@ -34,6 +34,7 @@ export async function middleware(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET?.trim();
   const isCronPath =
     pathname === "/api/gold-rate/update" ||
+    pathname === "/api/silver-rate/update" ||
     pathname === "/api/fx-rates/update";
   const hasCronSecret =
     Boolean(cronSecret) && bearer === cronSecret && isCronPath;

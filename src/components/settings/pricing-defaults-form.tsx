@@ -1,80 +1,303 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Check, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  CheckCircle2,
+  Clock,
+  Coins,
+  Gem,
+  Globe2,
+  Hammer,
+  Loader2,
+  RotateCcw,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { NumberInput } from "@/components/ui/number-input";
-import { Label } from "@/components/ui/label";
-import { PageLoader } from "@/components/brand/video-loader";
+import { formatINR } from "@/lib/format";
 import { MOCK_PRICING_DEFAULTS } from "@/lib/mock/data";
-import type { GoldPurityOption, PricingDefaults } from "@/types/jewellery";
+import { cn } from "@/lib/utils";
+import type {
+  ChargeCalcType,
+  GoldPurityOption,
+  PricingDefaults,
+} from "@/types/jewellery";
 
-// Purity groups, in a sensible display order.
 const GOLD_PURITIES: GoldPurityOption[] = ["24K", "22K", "18K", "14K", "10K", "9K"];
 const SILVER_PURITIES: GoldPurityOption[] = ["999", "958", "925"];
 
-function formatIstTimestamp(iso: string | null | undefined): string | null {
+const CALC_TYPES: { value: ChargeCalcType; label: string }[] = [
+  { value: "per-gram", label: "Per gram" },
+  { value: "fixed", label: "Fixed" },
+  { value: "percentage", label: "Percentage" },
+];
+
+function formatIst(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
+const perGram = (base: number, percent: number) =>
+  formatINR(Math.round((base * (percent || 0)) / 100), { maximumFractionDigits: 0 });
+
+// ---------------------------------------------------------------------------
+// Building blocks
+// ---------------------------------------------------------------------------
+
+type Tone = "gold" | "silver" | "diamond" | "charges";
+
+const TONE_STRIP: Record<Tone, string> = {
+  gold: "from-champagne-soft via-champagne to-amber-300",
+  silver: "from-slate-200 via-slate-300 to-slate-200",
+  diamond: "from-sky-200 via-indigo-200 to-violet-200",
+  charges: "from-champagne-muted via-champagne-soft to-champagne-muted",
+};
+
+const TONE_ICON: Record<Tone, string> = {
+  gold: "bg-champagne-muted/70 text-charcoal",
+  silver: "bg-slate-100 text-slate-600",
+  diamond: "bg-indigo-50 text-indigo-500",
+  charges: "bg-ivory-deep text-charcoal-muted",
+};
+
+function Section({
+  tone,
+  icon: Icon,
+  title,
+  description,
+  meta,
+  className,
+  children,
+}: {
+  tone: Tone;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  meta?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const id = `settings-${title.toLowerCase().replace(/[^a-z]+/g, "-")}`;
   return (
-    new Intl.DateTimeFormat("en-IN", {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }).format(date) + " IST"
+    <section
+      aria-labelledby={id}
+      className={cn(
+        "flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-surface shadow-[0_1px_2px_rgba(26,24,22,0.04)]",
+        className,
+      )}
+    >
+      <div className={cn("h-1 bg-gradient-to-r", TONE_STRIP[tone])} aria-hidden="true" />
+      <header className="flex items-center gap-3 px-5 pb-4 pt-5 sm:px-6">
+        <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", TONE_ICON[tone])}>
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <h2 id={id} className="truncate font-display text-xl font-semibold leading-tight tracking-tight text-charcoal">
+              {title}
+            </h2>
+            {meta ? <div className="shrink-0">{meta}</div> : null}
+          </div>
+          <p className="mt-1 truncate text-sm text-muted-foreground" title={description}>
+            {description}
+          </p>
+        </div>
+      </header>
+      <div className="flex-1 px-5 pb-5 sm:px-6 sm:pb-6">{children}</div>
+    </section>
   );
 }
 
-function Field({
+/** Small "auto-updated" chip shown in a section header. */
+function SyncChip({ when, schedule }: { when: string | null; schedule: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/80 bg-ivory-deep/60 px-2.5 py-1 text-[11px] font-medium text-charcoal-muted"
+      title={`Refreshed automatically every day at ${schedule} IST`}
+    >
+      <Clock className="h-3 w-3 text-champagne" aria-hidden="true" />
+      {when ? `Updated ${when}` : `Auto-updates ${schedule}`}
+    </span>
+  );
+}
+
+/** Number field with an optional prefix (₹) and unit suffix (/ g, %). */
+function AffixField({
+  id,
   label,
+  value,
+  onChange,
+  prefix,
+  suffix,
+  step,
+  disabled,
+  size = "md",
   hint,
-  children,
 }: {
+  id: string;
   label: string;
-  hint?: string;
-  children: React.ReactNode;
+  value: number;
+  onChange: (value: number) => void;
+  prefix?: string;
+  suffix?: string;
+  step?: string;
+  disabled?: boolean;
+  size?: "md" | "lg";
+  hint?: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="normal-case tracking-normal text-[13px] font-medium text-charcoal-muted">
+      <label htmlFor={id} className="block text-[13px] font-medium text-charcoal-muted">
         {label}
-      </Label>
-      {children}
-      {hint ? (
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      ) : null}
+      </label>
+      <div className="relative">
+        {prefix ? (
+          <span
+            className={cn(
+              "pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted-foreground",
+              size === "lg" ? "left-4 text-lg font-medium" : "text-sm",
+            )}
+          >
+            {prefix}
+          </span>
+        ) : null}
+        <NumberInput
+          id={id}
+          step={step}
+          value={value}
+          disabled={disabled}
+          onValueChange={onChange}
+          className={cn(
+            "tabular-nums",
+            // Hide native spinners so every price box looks identical.
+            "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+            prefix && "pl-7",
+            suffix && "pr-14",
+            size === "lg" && "h-12 pl-9 pr-20 font-display text-xl font-medium",
+          )}
+        />
+        {suffix ? (
+          <span
+            className={cn(
+              "pointer-events-none absolute inset-y-0 right-3 flex items-center font-medium text-muted-foreground",
+              size === "lg"
+                ? "right-2 my-2 rounded-md border-l border-border/70 pl-3 pr-2 text-xs"
+                : "text-xs",
+            )}
+          >
+            {suffix}
+          </span>
+        ) : null}
+      </div>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
 
-function PurityField({
+/** One purity: % input plus the resulting rate per gram. */
+function PurityTile({
   purity,
-  value,
+  label,
+  percent,
+  base,
   onChange,
 }: {
   purity: GoldPurityOption;
-  value: number;
+  label?: string;
+  percent: number;
+  base: number;
   onChange: (value: number) => void;
 }) {
+  const id = `purity-${purity}`;
   return (
-    <Field label={purity}>
-      <NumberInput step="0.01" value={value} onValueChange={onChange} />
-    </Field>
+    <div className="rounded-xl border border-border/70 bg-surface-elevated p-3">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className="text-sm font-semibold text-charcoal">
+          {label ?? purity}
+        </label>
+        <span className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+          {perGram(base, percent)}/g
+        </span>
+      </div>
+      <div className="relative">
+        <NumberInput
+          id={id}
+          step="0.01"
+          value={percent}
+          onValueChange={onChange}
+          aria-label={`${label ?? purity} purity percent`}
+          className="h-9 pr-8 tabular-nums"
+        />
+        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
+          %
+        </span>
+      </div>
+    </div>
   );
 }
+
+/** Charge amount whose unit follows the selected calculation type. */
+function ChargeField({
+  id,
+  label,
+  amount,
+  type,
+  onAmount,
+  onType,
+}: {
+  id: string;
+  label: string;
+  amount: number;
+  type: ChargeCalcType;
+  onAmount: (value: number) => void;
+  onType: (value: ChargeCalcType) => void;
+}) {
+  const suffix = type === "percentage" ? "%" : type === "per-gram" ? "₹ / g" : "₹";
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="text-[13px] font-medium text-charcoal-muted">{label}</legend>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <div className="relative">
+          <NumberInput
+            id={id}
+            value={amount}
+            onValueChange={onAmount}
+            aria-label={`${label} amount`}
+            className="pr-14 tabular-nums"
+          />
+          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-muted-foreground">
+            {suffix}
+          </span>
+        </div>
+        <select
+          aria-label={`${label} calculation`}
+          className="app-select h-10 rounded-md border border-input bg-surface-elevated pl-3 text-sm text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-champagne/40"
+          value={type}
+          onChange={(e) => onType(e.target.value as ChargeCalcType)}
+        >
+          {CALC_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </fieldset>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Form
+// ---------------------------------------------------------------------------
 
 export function PricingDefaultsForm({
   initialDefaults,
@@ -82,17 +305,26 @@ export function PricingDefaultsForm({
   initialDefaults: PricingDefaults;
 }) {
   const [form, setForm] = useState<PricingDefaults>(initialDefaults);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [liveMessage, setLiveMessage] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState(() => JSON.stringify(initialDefaults));
   const [saving, setSaving] = useState(false);
-  const [updatingLive, setUpdatingLive] = useState(false);
-  const [updatingSilver, setUpdatingSilver] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [fxLastUpdated, setFxLastUpdated] = useState<string | null>(null);
-  // Default diamond discount is opt-in — the field only opens when checked.
-  const [discountEnabled, setDiscountEnabled] = useState<boolean>(
+  const [discountEnabled, setDiscountEnabled] = useState(
     () => (initialDefaults.defaultDiamondDiscount ?? 0) > 0,
   );
+
+  const dirty = useMemo(() => JSON.stringify(form) !== baseline, [form, baseline]);
+
+  const update = useCallback(<K extends keyof PricingDefaults>(key: K, value: PricingDefaults[K]) => {
+    setForm((d) => ({ ...d, [key]: value }));
+    setJustSaved(false);
+  }, []);
+
+  const setPurity = useCallback((purity: GoldPurityOption, value: number) => {
+    setForm((d) => ({ ...d, purityPercentages: { ...d.purityPercentages, [purity]: value } }));
+    setJustSaved(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,10 +333,9 @@ export function PricingDefaultsForm({
         const res = await fetch("/api/fx-rates/current");
         if (!res.ok) return;
         const body = (await res.json()) as { capturedAt?: string | null };
-        if (cancelled) return;
-        setFxLastUpdated(formatIstTimestamp(body.capturedAt));
+        if (!cancelled) setFxLastUpdated(formatIst(body.capturedAt));
       } catch {
-        // ignore
+        // Informational only.
       }
     })();
     return () => {
@@ -112,10 +343,10 @@ export function PricingDefaultsForm({
     };
   }, []);
 
-  async function handleSave() {
+  const save = useCallback(async () => {
+    if (saving) return;
     setSaving(true);
     setError(null);
-    setLiveMessage(null);
     try {
       const res = await fetch("/api/settings/pricing-defaults", {
         method: "PUT",
@@ -123,465 +354,300 @@ export function PricingDefaultsForm({
         body: JSON.stringify(form),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(body?.error ?? "Save failed");
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Couldn't save your settings. Please try again.");
       }
       const savedBody = (await res.json()) as PricingDefaults;
       setForm(savedBody);
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 2000);
+      setBaseline(JSON.stringify(savedBody));
+      setJustSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : "Couldn't save your settings.");
     } finally {
       setSaving(false);
     }
-  }
+  }, [form, saving]);
 
-  async function handleUpdateFromLiveRate() {
-    setUpdatingLive(true);
+  function discard() {
+    const previous = JSON.parse(baseline) as PricingDefaults;
+    setForm(previous);
+    setDiscountEnabled((previous.defaultDiamondDiscount ?? 0) > 0);
     setError(null);
-    setLiveMessage(null);
-    try {
-      const res = await fetch("/api/gold-rate/update", { method: "POST" });
-      const body = (await res.json().catch(() => null)) as {
-        error?: string;
-        gold24kRate?: number;
-        goldRateLastUpdatedAt?: string;
-      } | null;
-      if (!res.ok || body?.gold24kRate == null) {
-        throw new Error(
-          body?.error ??
-            "Unable to update gold rate. The previous rate is still being used.",
-        );
-      }
-      setForm((prev) => ({
-        ...prev,
-        gold24kRate: body.gold24kRate!,
-        goldRateLastUpdatedAt: body.goldRateLastUpdatedAt ?? null,
-      }));
-      setLiveMessage("Gold rate updated from live market.");
-      window.setTimeout(() => setLiveMessage(null), 3000);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to update gold rate. The previous rate is still being used.",
-      );
-    } finally {
-      setUpdatingLive(false);
-    }
   }
 
-  async function handleUpdateSilverFromLiveRate() {
-    setUpdatingSilver(true);
-    setError(null);
-    setLiveMessage(null);
-    try {
-      const res = await fetch("/api/silver-rate/update", { method: "POST" });
-      const body = (await res.json().catch(() => null)) as {
-        error?: string;
-        silverRate?: number;
-        silverRateLastUpdatedAt?: string;
-      } | null;
-      if (!res.ok || body?.silverRate == null) {
-        throw new Error(
-          body?.error ??
-            "Unable to update silver rate. The previous rate is still being used.",
-        );
-      }
-      setForm((prev) => ({
-        ...prev,
-        silverRate: body.silverRate!,
-        silverRateLastUpdatedAt: body.silverRateLastUpdatedAt ?? null,
-      }));
-      setLiveMessage("Silver rate updated from live market.");
-      window.setTimeout(() => setLiveMessage(null), 3000);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to update silver rate. The previous rate is still being used.",
-      );
-    } finally {
-      setUpdatingSilver(false);
-    }
-  }
-
-  async function handleReset() {
-    setForm(MOCK_PRICING_DEFAULTS);
+  /** Restores app defaults for everything except today's market rates. Not saved until "Save". */
+  function restoreDefaults() {
+    setForm((d) => ({
+      ...MOCK_PRICING_DEFAULTS,
+      gold24kRate: d.gold24kRate,
+      silverRate: d.silverRate,
+      goldRateLastUpdatedAt: d.goldRateLastUpdatedAt,
+      silverRateLastUpdatedAt: d.silverRateLastUpdatedAt,
+    }));
     setDiscountEnabled((MOCK_PRICING_DEFAULTS.defaultDiamondDiscount ?? 0) > 0);
-    setSaving(true);
-    setError(null);
-    setLiveMessage(null);
-    try {
-      const res = await fetch("/api/settings/pricing-defaults", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(MOCK_PRICING_DEFAULTS),
-      });
-      if (!res.ok) throw new Error("Reset failed");
-      const savedBody = (await res.json()) as PricingDefaults;
-      setForm(savedBody);
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Reset failed");
-    } finally {
-      setSaving(false);
-    }
+    setJustSaved(false);
   }
 
-  const lastUpdatedLabel = formatIstTimestamp(form.goldRateLastUpdatedAt);
-  const silverLastUpdatedLabel = formatIstTimestamp(
-    form.silverRateLastUpdatedAt,
-  );
+  // Ctrl/⌘ + S saves; warn before leaving with unsaved changes.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (dirty) void save();
+      }
+    }
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (dirty) event.preventDefault();
+    }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, [dirty, save]);
+
+  const pct = form.purityPercentages;
 
   return (
-    <div className="space-y-5">
-      {saving || updatingLive || updatingSilver ? (
-        <PageLoader
-          label={
-            updatingLive
-              ? "Updating gold rate…"
-              : updatingSilver
-                ? "Updating silver rate…"
-                : "Saving settings…"
-          }
-        />
-      ) : null}
-
-      {error && (
-        <div
-          className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-          role="alert"
+    <form
+      className="space-y-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <div className="grid gap-5 lg:grid-cols-12">
+        {/* Gold */}
+        <Section
+          tone="gold"
+          icon={Coins}
+          title="Gold"
+          description="24K base rate and karat purities."
+          meta={<SyncChip when={formatIst(form.goldRateLastUpdatedAt)} schedule="11:15 AM" />}
+          className="lg:col-span-7"
         >
-          {error}
-        </div>
-      )}
-      {liveMessage && (
-        <div
-          className="rounded-lg border border-[var(--success)]/30 bg-[var(--success)]/5 px-3 py-2 text-sm text-[var(--success)]"
-          role="status"
-        >
-          {liveMessage}
-        </div>
-      )}
-
-      {/* Gold Defaults */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-sans text-lg font-semibold tracking-tight">
-            Gold Defaults
-          </CardTitle>
-          <CardDescription>
-            Stored in MongoDB. Workspace preloads these on open.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <Field
-            label="24K Gold Rate (₹ / gram)"
-            hint="You can still change the rate per design in the workspace."
-          >
-            <NumberInput
+          <div className="space-y-4">
+            <AffixField
+              id="gold-rate"
+              label="24K gold rate"
+              prefix="₹"
+              suffix="/ gram"
+              size="lg"
               value={form.gold24kRate}
-              onValueChange={(n) =>
-                setForm((d) => ({ ...d, gold24kRate: n }))
-              }
+              onChange={(n) => update("gold24kRate", n)}
             />
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={updatingLive || saving}
-                onClick={() => void handleUpdateFromLiveRate()}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Update from Live Rate
-              </Button>
-              {lastUpdatedLabel ? (
-                <p className="text-xs text-muted-foreground">
-                  Last updated: {lastUpdatedLabel}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Auto-updates daily at 11:15 AM IST
-                </p>
-              )}
-            </div>
-          </Field>
-
-          <div>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="h-4 w-1 rounded-full bg-champagne" />
-              <p className="text-sm font-semibold uppercase tracking-[0.08em] text-charcoal">
-                Gold purity %
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {GOLD_PURITIES.map((purity) => (
-                <PurityField
-                  key={purity}
-                  purity={purity}
-                  value={form.purityPercentages[purity]}
-                  onChange={(n) =>
-                    setForm((d) => ({
-                      ...d,
-                      purityPercentages: {
-                        ...d.purityPercentages,
-                        [purity]: n,
-                      },
-                    }))
-                  }
-                />
-              ))}
+            <div>
+              <p className="mb-2 text-[13px] font-medium text-charcoal-muted">Purity and rate per gram</p>
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                {GOLD_PURITIES.map((p) => (
+                  <PurityTile
+                    key={p}
+                    purity={p}
+                    percent={pct[p]}
+                    base={form.gold24kRate}
+                    onChange={(n) => setPurity(p, n)}
+                  />
+                ))}
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </Section>
 
-      {/* Silver Defaults */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-sans text-lg font-semibold tracking-tight">
-            Silver Defaults
-          </CardTitle>
-          <CardDescription>
-            Pure (999) silver rate per gram. Silver purities price off this
-            rate.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <Field
-            label="Silver Rate (₹ / gram)"
-            hint="Base 999 silver rate. You can still change it per design in the workspace."
-          >
-            <NumberInput
+        {/* Silver */}
+        <Section
+          tone="silver"
+          icon={Coins}
+          title="Silver"
+          description="999 base rate (IBJA benchmark) and silver grades."
+          meta={<SyncChip when={formatIst(form.silverRateLastUpdatedAt)} schedule="11:16 AM" />}
+          className="lg:col-span-5"
+        >
+          <div className="space-y-4">
+            <AffixField
+              id="silver-rate"
+              label="999 silver rate"
+              prefix="₹"
+              suffix="/ gram"
+              size="lg"
               value={form.silverRate}
-              onValueChange={(n) => setForm((d) => ({ ...d, silverRate: n }))}
+              onChange={(n) => update("silverRate", n)}
             />
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={updatingSilver || saving}
-                onClick={() => void handleUpdateSilverFromLiveRate()}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Update from Live Rate
-              </Button>
-              {silverLastUpdatedLabel ? (
-                <p className="text-xs text-muted-foreground">
-                  Last updated: {silverLastUpdatedLabel}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  IBJA 999 silver benchmark
-                </p>
-              )}
-            </div>
-          </Field>
-
-          <div>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="h-4 w-1 rounded-full bg-charcoal-muted" />
-              <p className="text-sm font-semibold uppercase tracking-[0.08em] text-charcoal">
-                Silver purity %
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {SILVER_PURITIES.map((purity) => (
-                <PurityField
-                  key={purity}
-                  purity={purity}
-                  value={form.purityPercentages[purity]}
-                  onChange={(n) =>
-                    setForm((d) => ({
-                      ...d,
-                      purityPercentages: {
-                        ...d.purityPercentages,
-                        [purity]: n,
-                      },
-                    }))
-                  }
-                />
-              ))}
+            <div>
+              <p className="mb-2 text-[13px] font-medium text-charcoal-muted">Purity and rate per gram</p>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+                {SILVER_PURITIES.map((p) => (
+                  <PurityTile
+                    key={p}
+                    purity={p}
+                    label={p === "925" ? "925 Sterling" : p}
+                    percent={pct[p]}
+                    base={form.silverRate}
+                    onChange={(n) => setPurity(p, n)}
+                  />
+                ))}
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </Section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-sans text-lg font-semibold tracking-tight">
-            Diamond Defaults
-          </CardTitle>
-          <CardDescription>
-            Separate rates for Natural, Lab Grown, and Moissanite — used in
-            variation pricing.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="Natural Diamond Rate (₹ / CT)">
-            <NumberInput
-              value={form.defaultDiamondRateNatural}
-              onValueChange={(n) =>
-                setForm((d) => ({
-                  ...d,
-                  defaultDiamondRateNatural: n,
-                  defaultDiamondRate: n,
-                }))
-              }
-            />
-          </Field>
-          <Field label="Lab Grown Diamond Rate (₹ / CT)">
-            <NumberInput
-              value={form.defaultDiamondRateLabGrown}
-              onValueChange={(n) =>
-                setForm((d) => ({ ...d, defaultDiamondRateLabGrown: n }))
-              }
-            />
-          </Field>
-          <Field label="Moissanite Rate (₹ / CT)">
-            <NumberInput
-              value={form.defaultDiamondRateMoissanite}
-              onValueChange={(n) =>
-                setForm((d) => ({ ...d, defaultDiamondRateMoissanite: n }))
-              }
-            />
-          </Field>
-          <div className="space-y-1.5">
-            <label className="flex cursor-pointer items-center gap-2 normal-case tracking-normal text-[13px] font-medium text-charcoal-muted">
-              <Checkbox
-                checked={discountEnabled}
-                onCheckedChange={(value) => {
-                  const on = value === true;
-                  setDiscountEnabled(on);
-                  if (!on) {
-                    setForm((d) => ({ ...d, defaultDiamondDiscount: 0 }));
-                  }
-                }}
+        {/* Diamonds */}
+        <Section
+          tone="diamond"
+          icon={Gem}
+          title="Diamonds & stones"
+          description="Rate per carat for each stone type."
+          className="lg:col-span-7"
+        >
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <AffixField
+                id="rate-natural"
+                label="Natural"
+                prefix="₹"
+                suffix="/ ct"
+                value={form.defaultDiamondRateNatural}
+                onChange={(n) =>
+                  setForm((d) => ({ ...d, defaultDiamondRateNatural: n, defaultDiamondRate: n }))
+                }
               />
-              Apply default diamond discount (%)
-            </label>
-            <NumberInput
-              value={form.defaultDiamondDiscount}
-              disabled={!discountEnabled}
-              onValueChange={(n) =>
-                setForm((d) => ({ ...d, defaultDiamondDiscount: n }))
-              }
+              <AffixField
+                id="rate-lab"
+                label="Lab-grown"
+                prefix="₹"
+                suffix="/ ct"
+                value={form.defaultDiamondRateLabGrown}
+                onChange={(n) => update("defaultDiamondRateLabGrown", n)}
+              />
+              <AffixField
+                id="rate-moissanite"
+                label="Moissanite"
+                prefix="₹"
+                suffix="/ ct"
+                value={form.defaultDiamondRateMoissanite}
+                onChange={(n) => update("defaultDiamondRateMoissanite", n)}
+              />
+            </div>
+            <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-surface-elevated p-3 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex cursor-pointer items-start gap-3">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={discountEnabled}
+                  onCheckedChange={(value) => {
+                    const on = value === true;
+                    setDiscountEnabled(on);
+                    if (!on) update("defaultDiamondDiscount", 0);
+                  }}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-charcoal">Apply a default diamond discount</span>
+                  <span className="block text-xs text-muted-foreground">Taken off the diamond value on every variation.</span>
+                </span>
+              </label>
+              <div className="relative w-full sm:w-32">
+                <NumberInput
+                  value={form.defaultDiamondDiscount}
+                  disabled={!discountEnabled}
+                  onValueChange={(n) => update("defaultDiamondDiscount", n)}
+                  aria-label="Default diamond discount percent"
+                  className="h-9 pr-8 tabular-nums"
+                />
+                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
+                  %
+                </span>
+              </div>
+            </div>
+          </div>
+        </Section>
+
+        {/* Charges */}
+        <Section
+          tone="charges"
+          icon={Hammer}
+          title="Charges"
+          description="Added to every variation's price."
+          className="lg:col-span-5"
+        >
+          <div className="space-y-4">
+            <ChargeField
+              id="making-charge"
+              label="Making charge"
+              amount={form.defaultMakingCharge}
+              type={form.defaultMakingCalcType}
+              onAmount={(n) => update("defaultMakingCharge", n)}
+              onType={(t) => update("defaultMakingCalcType", t)}
+            />
+            <ChargeField
+              id="other-charge"
+              label="Other charge"
+              amount={form.defaultOtherCharge}
+              type={form.defaultOtherCalcType}
+              onAmount={(n) => update("defaultOtherCharge", n)}
+              onType={(t) => update("defaultOtherCalcType", t)}
             />
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-sans text-lg font-semibold tracking-tight">
-            Charge Defaults
-          </CardTitle>
-          <CardDescription>
-            Making and other charges preload into the pricing workspace.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="Default Making Charge (₹)">
-            <NumberInput
-              value={form.defaultMakingCharge}
-              onValueChange={(n) =>
-                setForm((d) => ({ ...d, defaultMakingCharge: n }))
-              }
-            />
-          </Field>
-          <Field label="Making calculation type">
-            <select
-              className="app-select flex h-10 w-full rounded-md border border-input bg-surface-elevated px-3 text-sm"
-              value={form.defaultMakingCalcType}
-              onChange={(e) =>
-                setForm((d) => ({
-                  ...d,
-                  defaultMakingCalcType: e.target
-                    .value as PricingDefaults["defaultMakingCalcType"],
-                }))
-              }
-            >
-              <option value="per-gram">Per Gram</option>
-              <option value="fixed">Fixed</option>
-              <option value="percentage">Percentage</option>
-            </select>
-          </Field>
-          <Field label="Default Other Charge (₹)">
-            <NumberInput
-              value={form.defaultOtherCharge}
-              onValueChange={(n) =>
-                setForm((d) => ({ ...d, defaultOtherCharge: n }))
-              }
-            />
-          </Field>
-          <Field label="Other charge type">
-            <select
-              className="app-select flex h-10 w-full rounded-md border border-input bg-surface-elevated px-3 text-sm"
-              value={form.defaultOtherCalcType}
-              onChange={(e) =>
-                setForm((d) => ({
-                  ...d,
-                  defaultOtherCalcType: e.target
-                    .value as PricingDefaults["defaultOtherCalcType"],
-                }))
-              }
-            >
-              <option value="fixed">Fixed</option>
-              <option value="per-gram">Per Gram</option>
-              <option value="percentage">Percentage</option>
-            </select>
-          </Field>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-sans text-lg font-semibold tracking-tight">
-            Currency Rates
-          </CardTitle>
-          <CardDescription>
-            Daily FX snapshot for results display (INR stays the calculation
-            currency). Auto-updates at 11:20 AM IST.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {fxLastUpdated ? (
-            <p className="text-sm text-muted-foreground">
-              Last updated: {fxLastUpdated}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No FX snapshot yet — updates automatically at 11:20 AM IST.
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            These rates refresh automatically every day at 11:20 AM IST. No
-            manual action needed.
-          </p>
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Saving…" : "Save settings"}
-        </Button>
-        <Button variant="outline" onClick={handleReset} disabled={saving}>
-          Reset to app defaults
-        </Button>
-        {saved && (
-          <span className="inline-flex items-center gap-1.5 text-sm text-[var(--success)]">
-            <Check className="h-4 w-4" />
-            Saved to database
-          </span>
-        )}
+        </Section>
       </div>
-    </div>
+
+      {/* Currency (informational) */}
+      <div className="flex flex-col gap-2 rounded-2xl border border-border/80 bg-surface-elevated px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ivory-deep text-charcoal-muted">
+            <Globe2 className="h-[18px] w-[18px]" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-charcoal">Currency rates</p>
+            <p className="text-sm text-muted-foreground">
+              Prices are always calculated in INR. Other currencies are for display and Excel export.
+            </p>
+          </div>
+        </div>
+        <SyncChip when={fxLastUpdated} schedule="11:20 AM" />
+      </div>
+
+      {/* Action bar */}
+      <div className="sticky bottom-4 z-30">
+        <div
+          className={cn(
+            "flex flex-col gap-3 rounded-2xl border px-4 py-3 shadow-[0_12px_32px_-12px_rgba(26,24,22,0.25)] backdrop-blur-xl transition-colors sm:flex-row sm:items-center sm:justify-between sm:px-5",
+            dirty ? "border-champagne/50 bg-surface/95" : "border-border/80 bg-surface/90",
+          )}
+        >
+          <div className="flex items-center gap-2 text-sm" role="status" aria-live="polite">
+            {error ? (
+              <span className="text-destructive">{error}</span>
+            ) : saving ? (
+              <span className="flex items-center gap-2 text-charcoal-muted">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Saving…
+              </span>
+            ) : dirty ? (
+              <span className="flex items-center gap-2 font-medium text-charcoal">
+                <span className="h-2 w-2 rounded-full bg-champagne" aria-hidden="true" />
+                Unsaved changes
+              </span>
+            ) : (
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <CheckCircle2 className={cn("h-4 w-4", justSaved ? "text-[var(--success)]" : "text-muted-foreground")} aria-hidden="true" />
+                {justSaved ? "Saved. New pricing sessions will use these rates." : "All changes saved"}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={restoreDefaults} disabled={saving}>
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              Restore defaults
+            </Button>
+            {dirty ? (
+              <Button type="button" variant="outline" size="sm" onClick={discard} disabled={saving}>
+                Discard
+              </Button>
+            ) : null}
+            <Button type="submit" size="sm" disabled={!dirty || saving} className="min-w-[120px]">
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </form>
   );
 }

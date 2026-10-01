@@ -1,27 +1,16 @@
 import { NextResponse } from "next/server";
 import { AuthError, requireUser } from "@/lib/auth/session";
-import { getDashboardStats, listProducts } from "@/lib/services/products";
-import { decimalToNumber } from "@/lib/services/settings";
+import { getDashboardStats } from "@/lib/services/products";
 
 export async function GET() {
   try {
     const session = await requireUser();
-    const [stats, recent] = await Promise.all([
-      getDashboardStats(session.id),
-      listProducts(session.id, 5),
-    ]);
-
+    const stats = await getDashboardStats(session.id);
     return NextResponse.json({
-      stats,
-      recentDesigns: recent.map((p) => ({
-        id: p.id,
-        designNo: p.designNo,
-        category: p.category,
-        variationCount: p.variationCount,
-        priceMin: p.priceMin ? decimalToNumber(p.priceMin) : 0,
-        priceMax: p.priceMax ? decimalToNumber(p.priceMax) : 0,
-        updatedAt: p.updatedAt.toISOString(),
-      })),
+      stats: {
+        todaysImports: stats.todaysImports,
+        current24kGoldRate: stats.current24kGoldRate,
+      },
     });
   } catch (error) {
     if (error instanceof AuthError) {

@@ -50,9 +50,6 @@ function DataRow({ label, value }: { label: string; value: string }) {
 export function PricingResultsView() {
   const router = useRouter();
   const [draft, setDraft] = useState<PricingDraft | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [currency, setCurrency] = useState<SupportedCurrency>("INR");
   const [fxRates, setFxRates] = useState<Partial<Record<string, number>> | null>(
     { INR: 1 },
@@ -88,7 +85,7 @@ export function PricingResultsView() {
 
   const hasFxRates = Boolean(
     fxRates &&
-      Object.keys(fxRates).some((k) => k !== "INR" && Number(fxRates[k]) > 0),
+    Object.keys(fxRates).some((k) => k !== "INR" && Number(fxRates[k]) > 0),
   );
 
   const sessionInput: PricingSessionInput | null = useMemo(() => {
@@ -136,13 +133,13 @@ export function PricingResultsView() {
 
   const variationCount = draft
     ? countVariations(
-        draft.selection.metals,
-        draft.selection.purities,
-        draft.selection.colors,
-        draft.selection.diamondTypes?.length
-          ? draft.selection.diamondTypes
-          : ["natural", "lab-grown"],
-      )
+      draft.selection.metals,
+      draft.selection.purities,
+      draft.selection.colors,
+      draft.selection.diamondTypes?.length
+        ? draft.selection.diamondTypes
+        : ["natural", "lab-grown"],
+    )
     : 0;
 
   const priceRange = useMemo(
@@ -188,43 +185,6 @@ export function PricingResultsView() {
       currency,
       rates: fxRates,
     });
-  }
-
-  async function handleSaveProduct() {
-    if (!draft || validationIssues.length > 0 || pricedVariations.length === 0) {
-      setSaveError("Fix validation issues before saving.");
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    setSaveMessage(null);
-    try {
-      const res = await fetch("/api/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          extracted: draft.extracted,
-          pricing: draft.pricing,
-          selection: draft.selection,
-          purityPercentages: draft.purityPercentages,
-          imageFileName: draft.excelFileName ?? draft.imageName,
-          overridesByVariationId: draft.overridesByVariationId,
-        }),
-      });
-      const body = (await res.json()) as {
-        error?: string;
-        designNo?: string;
-        variationCount?: number;
-      };
-      if (!res.ok) throw new Error(body.error ?? "Save failed");
-      setSaveMessage(
-        `Saved ${body.designNo} · ${body.variationCount} variations (snapshot locked)`,
-      );
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
   }
 
   if (!draft || !draft.calculatedAt) {
@@ -378,14 +338,6 @@ export function PricingResultsView() {
           <div className="mt-4 flex flex-wrap gap-2 border-t border-border/60 pt-4">
             <Button
               size="sm"
-              onClick={() => void handleSaveProduct()}
-              disabled={saving || validationIssues.length > 0}
-            >
-              {saving ? "Saving…" : "Save Product"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
               onClick={handleExportExcel}
               disabled={pricedVariations.length === 0 || validationIssues.length > 0}
             >
@@ -417,12 +369,6 @@ export function PricingResultsView() {
               Edit Rates
             </Button>
           </div>
-          {saveMessage && (
-            <p className="pt-2 text-sm text-[var(--success)]">{saveMessage}</p>
-          )}
-          {saveError && (
-            <p className="pt-2 text-sm text-destructive">{saveError}</p>
-          )}
         </CardContent>
       </Card>
 

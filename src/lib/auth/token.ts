@@ -35,9 +35,16 @@ export async function signSession(
     .sign(getSecret());
 }
 
-export async function readSessionToken(
+export type SessionClaims = {
+  user: SessionUser;
+  /** From the standard `iat` claim the token already carries. */
+  issuedAt: Date | null;
+};
+
+/** Same verification as readSessionToken, also exposing `iat`. Token format is unchanged. */
+export async function readSessionClaims(
   token: string | undefined,
-): Promise<SessionUser | null> {
+): Promise<SessionClaims | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, getSecret());
@@ -50,12 +57,22 @@ export async function readSessionToken(
       return null;
     }
     return {
-      id: payload.id,
-      email: payload.email,
-      name: payload.name,
-      role: payload.role,
+      user: {
+        id: payload.id,
+        email: payload.email,
+        name: payload.name,
+        role: payload.role,
+      },
+      issuedAt:
+        typeof payload.iat === "number" ? new Date(payload.iat * 1000) : null,
     };
   } catch {
     return null;
   }
+}
+
+export async function readSessionToken(
+  token: string | undefined,
+): Promise<SessionUser | null> {
+  return (await readSessionClaims(token))?.user ?? null;
 }

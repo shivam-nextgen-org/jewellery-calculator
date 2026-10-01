@@ -62,9 +62,12 @@ async function main() {
   }
 
   const colors = [
+    // Gold colours
     { code: GoldColorCode.YELLOW, label: "Yellow Gold" },
     { code: GoldColorCode.WHITE, label: "White Gold" },
     { code: GoldColorCode.ROSE, label: "Rose Gold" },
+    // Silver colour
+    { code: GoldColorCode.SILVER, label: "Sterling Silver" },
   ];
   for (const c of colors) {
     await upsertByCode(prisma.goldColor, c.code, c, { label: c.label });

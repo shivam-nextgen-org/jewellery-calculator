@@ -5,11 +5,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Calculator,
+  Check,
   Download,
   FileSpreadsheet,
   Loader2,
   Plus,
-  RefreshCw,
   Trash2,
   Upload,
   X,
@@ -20,14 +20,6 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
@@ -148,6 +140,9 @@ const SILVER_COLOR_OPTIONS: { id: GoldColorOption; label: string }[] = [
   { id: "sterling", label: "Sterling Silver" },
 ];
 
+const GOLD_COLOR_IDS = COLOR_OPTIONS.map((c) => c.id);
+const SILVER_COLOR_IDS = SILVER_COLOR_OPTIONS.map((c) => c.id);
+
 function Field({
   label,
   children,
@@ -160,6 +155,227 @@ function Field({
       <Label>{label}</Label>
       {children}
     </div>
+  );
+}
+
+/** A single large, tappable selection chip used across the config panel. */
+function SelectChip({
+  checked,
+  onToggle,
+  children,
+  disabled,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onToggle}
+      className={cn(
+        "flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left text-[15px] font-medium transition-all",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-champagne/40",
+        checked
+          ? "border-champagne bg-champagne-muted/40 text-charcoal shadow-sm"
+          : "border-border bg-surface text-charcoal-muted hover:border-champagne/40 hover:bg-ivory-deep/50",
+        disabled && "cursor-not-allowed opacity-50",
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+          checked
+            ? "border-champagne bg-champagne text-charcoal"
+            : "border-border bg-surface",
+        )}
+        aria-hidden
+      >
+        {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+      </span>
+      {children}
+    </button>
+  );
+}
+
+/** A titled section block for the Variation Configuration panel. */
+function ConfigSection({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="h-4 w-1 rounded-full bg-champagne" aria-hidden />
+        <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-charcoal">
+          {title}
+        </h3>
+      </div>
+      {hint ? (
+        <p className="-mt-1 text-[13px] text-muted-foreground">{hint}</p>
+      ) : null}
+      {children}
+    </section>
+  );
+}
+
+type PricingCardAccent = "gold" | "silver" | "diamond" | "charges";
+
+const ACCENT_STYLES: Record<PricingCardAccent, { header: string; dot: string }> = {
+  gold: { header: "bg-champagne-muted/30", dot: "bg-champagne" },
+  silver: { header: "bg-ivory-deep/50", dot: "bg-charcoal-muted" },
+  diamond: { header: "bg-ivory-deep/50", dot: "bg-surface ring-2 ring-charcoal-muted/60" },
+  charges: { header: "bg-ivory-deep/50", dot: "bg-charcoal" },
+};
+
+/**
+ * Shared shell for every block in the Pricing column (Gold, Silver, Diamond,
+ * Charges) so they all read the same: tinted header, then content.
+ */
+function PricingCard({
+  title,
+  accent,
+  meta,
+  children,
+}: {
+  title: string;
+  accent: PricingCardAccent;
+  /** Short right-aligned note in the header (e.g. "0.92 CT"). */
+  meta?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const style = ACCENT_STYLES[accent];
+  return (
+    <section className="overflow-hidden rounded-2xl border border-border/80 bg-surface shadow-sm">
+      <div
+        className={cn(
+          "flex items-center gap-2 border-b border-border/70 px-4 py-3",
+          style.header,
+        )}
+      >
+        <span className={cn("h-2.5 w-2.5 rounded-full", style.dot)} aria-hidden />
+        <h3 className="text-base font-semibold tracking-tight text-charcoal">
+          {title}
+        </h3>
+        {meta ? (
+          <span className="ml-auto text-xs font-medium text-muted-foreground">
+            {meta}
+          </span>
+        ) : null}
+      </div>
+      <div className="space-y-3 p-4">{children}</div>
+    </section>
+  );
+}
+
+/** Bordered table frame matching the purity tables. */
+function RateTable({
+  headers,
+  children,
+}: {
+  headers: { label: string; align?: "left" | "right"; className?: string }[];
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/70">
+      <table className="w-full text-[15px]">
+        <thead>
+          <tr className="bg-ivory-deep/40 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            {headers.map((h) => (
+              <th
+                key={h.label}
+                scope="col"
+                className={cn(
+                  "px-3 py-2 font-medium",
+                  h.align === "right" ? "text-right" : "text-left",
+                  h.className,
+                )}
+              >
+                {h.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function EmptyRow({ colSpan, children }: { colSpan: number; children: React.ReactNode }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-3 py-4 text-center text-sm text-muted-foreground">
+        {children}
+      </td>
+    </tr>
+  );
+}
+
+/** A metal rate card (Gold / Silver): editable base rate + purity table.
+ *  Built on PricingCard so it matches Diamond and Charges exactly. */
+function MetalRateCard({
+  title,
+  accent,
+  rateLabel,
+  rateValue,
+  onRateChange,
+  rows,
+}: {
+  title: string;
+  accent: "gold" | "silver";
+  rateLabel: string;
+  rateValue: number;
+  onRateChange: (n: number) => void;
+  rows: { purity: string; percentage: string; ratePerGram: string }[];
+}) {
+  return (
+    <PricingCard title={title} accent={accent}>
+      <Field label={rateLabel}>
+        <NumberInput
+          className="h-11 text-base"
+          value={rateValue}
+          onValueChange={onRateChange}
+        />
+      </Field>
+      <RateTable
+        headers={[
+          { label: "Purity" },
+          { label: "%" },
+          { label: "₹ / gram", align: "right" },
+        ]}
+      >
+        {rows.length === 0 ? (
+          <EmptyRow colSpan={3}>No purities selected</EmptyRow>
+        ) : (
+          rows.map((row) => (
+            <tr key={row.purity} className="border-t border-border/60">
+              <td className="px-3 py-2.5 font-semibold text-charcoal">
+                {row.purity}
+              </td>
+              <td className="px-3 py-2.5 text-muted-foreground">
+                {formatPercent(row.percentage)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-charcoal">
+                {formatINR(row.ratePerGram, {
+                  maximumFractionDigits: 0,
+                  minimumFractionDigits: 0,
+                })}
+              </td>
+            </tr>
+          ))
+        )}
+      </RateTable>
+    </PricingCard>
   );
 }
 
@@ -231,8 +447,6 @@ export function PricingWorkspace({
   const [defaults, setDefaults] = useState<PricingDefaults>(
     initialDefaults ?? MOCK_PRICING_DEFAULTS,
   );
-  const [recalcConfirmOpen, setRecalcConfirmOpen] = useState(false);
-
   const [pricing, setPricing] = useState<PricingFormState>(() =>
     pricingFromDefaults(initialDefaults ?? MOCK_PRICING_DEFAULTS),
   );
@@ -352,8 +566,8 @@ export function PricingWorkspace({
       );
       const idx =
         typeof draft.selectedRowIndex === "number" &&
-        draft.selectedRowIndex >= 0 &&
-        draft.selectedRowIndex < normalized.length
+          draft.selectedRowIndex >= 0 &&
+          draft.selectedRowIndex < normalized.length
           ? draft.selectedRowIndex
           : byDesign >= 0
             ? byDesign
@@ -451,7 +665,14 @@ export function PricingWorkspace({
       })),
       overridesByVariationId,
     }),
-    [extracted, pricing, defaults.purityPercentages, selection, overridesByVariationId],
+    [
+      extracted,
+      pricing,
+      defaults.purityPercentages,
+      defaults.silverRate,
+      selection,
+      overridesByVariationId,
+    ],
   );
 
   const validationIssues = useMemo(
@@ -475,64 +696,53 @@ export function PricingWorkspace({
 
   // Gold purities price off the gold 24K rate; silver purities off the silver
   // rate. Kept as two separate tables so Gold and Silver never mix.
+  // Tables show the purities the user has selected for that metal. When none
+  // are selected yet, fall back to all configured purities so the card isn't
+  // empty while they decide.
   const goldPurityRates = useMemo(() => {
+    const selected = GOLD_PURITY_OPTIONS.filter((p) =>
+      selection.purities.includes(p),
+    );
+    const list = selected.length > 0 ? selected : GOLD_PURITY_OPTIONS;
     const percentages = Object.fromEntries(
-      GOLD_PURITY_OPTIONS.filter(
-        (p) => defaults.purityPercentages[p] != null,
-      ).map((p) => [p, defaults.purityPercentages[p]]),
+      list
+        .filter((p) => defaults.purityPercentages[p] != null)
+        .map((p) => [p, defaults.purityPercentages[p]]),
     );
     return buildPurityRateTable(pricing.gold24kRate, percentages);
-  }, [pricing.gold24kRate, defaults.purityPercentages]);
+  }, [pricing.gold24kRate, defaults.purityPercentages, selection.purities]);
 
   const silverPurityRates = useMemo(() => {
+    const selected = SILVER_PURITY_OPTIONS.filter((p) =>
+      selection.purities.includes(p),
+    );
+    const list = selected.length > 0 ? selected : SILVER_PURITY_OPTIONS;
     const percentages = Object.fromEntries(
-      SILVER_PURITY_OPTIONS.filter(
-        (p) => defaults.purityPercentages[p] != null,
-      ).map((p) => [p, defaults.purityPercentages[p]]),
+      list
+        .filter((p) => defaults.purityPercentages[p] != null)
+        .map((p) => [p, defaults.purityPercentages[p]]),
     );
     return buildPurityRateTable(pricing.silverRate ?? 0, percentages);
-  }, [pricing.silverRate, defaults.purityPercentages]);
+  }, [pricing.silverRate, defaults.purityPercentages, selection.purities]);
 
   const goldSelected = selection.metals.includes("gold");
   const silverSelected = selection.metals.includes("silver");
 
-  const hasOverrides = Object.keys(overridesByVariationId).length > 0;
-
-  async function runCalculate(options?: { clearOverrides?: boolean }) {
+  async function runCalculate() {
     if (validationIssues.length > 0) return;
     setIsCalculating(true);
     setStep("review", "none");
-
-    const nextOverrides = options?.clearOverrides
-      ? {}
-      : overridesByVariationId;
-    if (options?.clearOverrides) {
-      setOverridesByVariationId({});
-    }
 
     savePricingDraft(
       buildDraft({
         step: "review",
         calculatedAt: new Date().toISOString(),
-        overridesByVariationId: nextOverrides,
+        overridesByVariationId,
       }),
     );
 
     await new Promise((r) => window.setTimeout(r, 700));
     router.push("/pricing/results");
-  }
-
-  function requestRecalculateAll() {
-    if (hasOverrides) {
-      setRecalcConfirmOpen(true);
-      return;
-    }
-    void runCalculate();
-  }
-
-  function confirmRecalculateAll() {
-    setRecalcConfirmOpen(false);
-    void runCalculate({ clearOverrides: true });
   }
 
   function applyRowSelection(
@@ -616,7 +826,7 @@ export function PricingWorkspace({
       if (firstValid < 0) {
         setImportError(
           parsed.fileErrors.join(" ") ||
-            "No valid rows found. Check Design No and numeric columns.",
+          "No valid rows found. Check Design No and numeric columns.",
         );
         setExcelRows(tableRows);
         setExcelFileName(file.name);
@@ -730,10 +940,10 @@ export function PricingWorkspace({
         rows.map((row, i) =>
           i === selectedRowIndex
             ? {
-                ...row,
-                data: next,
-                validation: validateJewelleryRow(next),
-              }
+              ...row,
+              data: next,
+              validation: validateJewelleryRow(next),
+            }
             : row,
         ),
       );
@@ -747,10 +957,10 @@ export function PricingWorkspace({
         rows.map((row, i) =>
           i === selectedRowIndex
             ? {
-                ...row,
-                data: next,
-                validation: validateJewelleryRow(next),
-              }
+              ...row,
+              data: next,
+              validation: validateJewelleryRow(next),
+            }
             : row,
         ),
       );
@@ -906,91 +1116,91 @@ export function PricingWorkspace({
                 </div>
               </div>
             ) : (
-            <div
-              className={cn(
-                "relative flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-ivory-deep/40 px-6 py-12 text-center transition-colors",
-                excelFileName && "border-champagne/40 bg-champagne-muted/20",
-              )}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                void handleExcelPick(e.dataTransfer.files?.[0]);
-              }}
-            >
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-champagne/30 bg-surface text-champagne">
-                {excelFileName ? (
-                  <FileSpreadsheet className="h-6 w-6" />
-                ) : (
-                  <Upload className="h-6 w-6" />
+              <div
+                className={cn(
+                  "relative flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-ivory-deep/40 px-6 py-12 text-center transition-colors",
+                  excelFileName && "border-champagne/40 bg-champagne-muted/20",
                 )}
-              </div>
-              <h2 className="text-2xl font-semibold tracking-tight text-charcoal">
-                {excelFileName ? excelFileName : "Drop jewellery Excel"}
-              </h2>
-              <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                Upload a spreadsheet (.xlsx, .xls, or .csv) with design rows.
-                Download the sample template, fill it in, then verify each row
-                before pricing. Or add a single piece manually.
-              </p>
-              {importError && (
-                <p className="mt-3 max-w-lg text-sm text-destructive" role="alert">
-                  {importError}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  void handleExcelPick(e.dataTransfer.files?.[0]);
+                }}
+              >
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-champagne/30 bg-surface text-champagne">
+                  {excelFileName ? (
+                    <FileSpreadsheet className="h-6 w-6" />
+                  ) : (
+                    <Upload className="h-6 w-6" />
+                  )}
+                </div>
+                <h2 className="text-2xl font-semibold tracking-tight text-charcoal">
+                  {excelFileName ? excelFileName : "Drop jewellery Excel"}
+                </h2>
+                <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                  Upload a spreadsheet (.xlsx, .xls, or .csv) with design rows.
+                  Download the sample template, fill it in, then verify each row
+                  before pricing. Or add a single piece manually.
                 </p>
-              )}
-              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-                <label>
-                  <input
-                    type="file"
-                    accept={EXCEL_ACCEPT}
-                    className="sr-only"
-                    onChange={(e) => {
-                      void handleExcelPick(e.target.files?.[0]);
-                      e.target.value = "";
-                    }}
-                  />
-                  <span className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-surface px-4 text-sm font-medium hover:border-champagne/40 hover:bg-ivory-deep/60">
-                    Browse Excel
-                  </span>
-                </label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 px-4 text-sm"
-                  onClick={() => downloadSampleExcel()}
-                >
-                  <Download className="h-4 w-4" />
-                  Sample Excel
-                </Button>
-                <Button
-                  type="button"
-                  variant="champagne"
-                  className="h-10 px-4 text-sm"
-                  onClick={handleAddManually}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add manually
-                </Button>
-                {excelFileName && (
-                  <Button
-                    variant="ghost"
-                    className="h-10 px-4 text-sm"
-                    onClick={handleRemoveExcel}
-                  >
-                    <X />
-                    Remove
-                  </Button>
+                {importError && (
+                  <p className="mt-3 max-w-lg text-sm text-destructive" role="alert">
+                    {importError}
+                  </p>
                 )}
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                  <label>
+                    <input
+                      type="file"
+                      accept={EXCEL_ACCEPT}
+                      className="sr-only"
+                      onChange={(e) => {
+                        void handleExcelPick(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                    <span className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-surface px-4 text-sm font-medium hover:border-champagne/40 hover:bg-ivory-deep/60">
+                      Browse Excel
+                    </span>
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 px-4 text-sm"
+                    onClick={() => downloadSampleExcel()}
+                  >
+                    <Download className="h-4 w-4" />
+                    Sample Excel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="champagne"
+                    className="h-10 px-4 text-sm"
+                    onClick={handleAddManually}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add manually
+                  </Button>
+                  {excelFileName && (
+                    <Button
+                      variant="ghost"
+                      className="h-10 px-4 text-sm"
+                      onClick={handleRemoveExcel}
+                    >
+                      <X />
+                      Remove
+                    </Button>
+                  )}
+                </div>
+                <p className="mt-4 text-xs text-muted-foreground">
+                  <a
+                    href="/samples/jewellery-import-template.xlsx"
+                    className="underline-offset-2 hover:underline"
+                    download
+                  >
+                    Or download static sample
+                  </a>
+                </p>
               </div>
-              <p className="mt-4 text-xs text-muted-foreground">
-                <a
-                  href="/samples/jewellery-import-template.xlsx"
-                  className="underline-offset-2 hover:underline"
-                  download
-                >
-                  Or download static sample
-                </a>
-              </p>
-            </div>
             )}
           </CardContent>
         )}
@@ -1275,149 +1485,144 @@ export function PricingWorkspace({
                 </Button>
               </aside>
 
-              <section className="min-w-0 border-b border-border/70 p-5 lg:col-span-4 lg:border-b-0 lg:border-r">
-                <div className="mb-4 flex items-center justify-between gap-2">
+              <section className="min-w-0 border-b border-border/70 bg-ivory-deep/20 p-5 sm:p-6 lg:col-span-4 lg:border-b-0 lg:border-r">
+                <div className="mb-5 flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-lg font-semibold tracking-tight">
+                    <h2 className="text-xl font-semibold tracking-tight text-charcoal">
                       Variation Configuration
                     </h2>
-                    <p className="text-xs text-muted-foreground">
-                      Live combination count
+                    <p className="mt-0.5 text-[13px] text-muted-foreground">
+                      Pick metals, purities, colours and diamond types
                     </p>
                   </div>
-                  <Badge className="border-charcoal bg-charcoal text-ivory">
+                  <Badge className="shrink-0 border-charcoal bg-charcoal text-ivory">
                     {variationCount} selected
                   </Badge>
                 </div>
 
-                <div className="space-y-5">
-                  <div>
-                    <Label className="mb-2 block">Gold Metal</Label>
-                    <div className="space-y-2">
+                <div className="space-y-6">
+                  <ConfigSection
+                    title="Metal"
+                    hint="Select gold, silver, or both — each is priced on its own rate."
+                  >
+                    <div className="grid grid-cols-2 gap-2.5">
                       {METAL_OPTIONS.map((opt) => (
-                        <label
+                        <SelectChip
                           key={opt.id}
-                          className="flex cursor-pointer items-center gap-2.5 text-sm"
-                        >
-                          <Checkbox
-                            checked={selection.metals.includes(opt.id)}
-                            onCheckedChange={() =>
-                              setSelection((prev) => {
-                                // Gold and silver are mutually exclusive — pick
-                                // one metal at a time so purities/colors never mix.
-                                if (prev.metals.includes(opt.id)) return prev;
-                                const isSilver = opt.id === "silver";
-                                const allowedPurities = isSilver
+                          checked={selection.metals.includes(opt.id)}
+                          onToggle={() =>
+                            setSelection((prev) => {
+                              const removing = prev.metals.includes(opt.id);
+                              const nextMetals = toggleInArray(
+                                prev.metals,
+                                opt.id,
+                              );
+                              if (!removing) {
+                                return { ...prev, metals: nextMetals };
+                              }
+                              // Removing a metal drops only that metal's
+                              // purities and colours; the other metal stays.
+                              const droppedPurities =
+                                opt.id === "silver"
                                   ? SILVER_PURITY_OPTIONS
                                   : GOLD_PURITY_OPTIONS;
-                                const allowedColors = (
-                                  isSilver ? SILVER_COLOR_OPTIONS : COLOR_OPTIONS
-                                ).map((c) => c.id);
-                                return {
-                                  ...prev,
-                                  metals: [opt.id],
-                                  // Drop purities/colors that don't belong to the new metal.
-                                  purities: prev.purities.filter((p) =>
-                                    allowedPurities.includes(p),
-                                  ),
-                                  colors: prev.colors.filter((c) =>
-                                    allowedColors.includes(c),
-                                  ),
-                                };
-                              })
-                            }
-                          />
+                              const droppedColors =
+                                opt.id === "silver"
+                                  ? SILVER_COLOR_IDS
+                                  : GOLD_COLOR_IDS;
+                              return {
+                                ...prev,
+                                metals: nextMetals,
+                                purities: prev.purities.filter(
+                                  (p) => !droppedPurities.includes(p),
+                                ),
+                                colors: prev.colors.filter(
+                                  (c) => !droppedColors.includes(c),
+                                ),
+                              };
+                            })
+                          }
+                        >
                           {opt.label}
-                        </label>
+                        </SelectChip>
                       ))}
                     </div>
-                  </div>
+                  </ConfigSection>
 
                   {goldSelected && (
-                    <div>
-                      <Label className="mb-2 block">Gold Purity</Label>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <ConfigSection title="Gold Purity">
+                      <div className="grid grid-cols-3 gap-2.5">
                         {GOLD_PURITY_OPTIONS.map((purity) => (
-                          <label
+                          <SelectChip
                             key={purity}
-                            className="flex cursor-pointer items-center gap-2.5 text-sm"
+                            checked={selection.purities.includes(purity)}
+                            onToggle={() =>
+                              setSelection((prev) => ({
+                                ...prev,
+                                purities: toggleInArray(prev.purities, purity),
+                              }))
+                            }
                           >
-                            <Checkbox
-                              checked={selection.purities.includes(purity)}
-                              onCheckedChange={() =>
-                                setSelection((prev) => ({
-                                  ...prev,
-                                  purities: toggleInArray(
-                                    prev.purities,
-                                    purity,
-                                  ),
-                                }))
-                              }
-                            />
                             {purity}
-                          </label>
+                          </SelectChip>
                         ))}
                       </div>
-                    </div>
+                    </ConfigSection>
                   )}
 
                   {silverSelected && (
-                    <div>
-                      <Label className="mb-2 block">Silver Purity</Label>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <ConfigSection title="Silver Purity">
+                      <div className="grid grid-cols-3 gap-2.5">
                         {SILVER_PURITY_OPTIONS.map((purity) => (
-                          <label
+                          <SelectChip
                             key={purity}
-                            className="flex cursor-pointer items-center gap-2.5 text-sm"
-                          >
-                            <Checkbox
-                              checked={selection.purities.includes(purity)}
-                              onCheckedChange={() =>
-                                setSelection((prev) => ({
-                                  ...prev,
-                                  purities: toggleInArray(
-                                    prev.purities,
-                                    purity,
-                                  ),
-                                }))
-                              }
-                            />
-                            {purity}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <Label className="mb-2 block">Color</Label>
-                    <div className="space-y-2">
-                      {(silverSelected
-                        ? SILVER_COLOR_OPTIONS
-                        : COLOR_OPTIONS
-                      ).map((opt) => (
-                        <label
-                          key={opt.id}
-                          className="flex cursor-pointer items-center gap-2.5 text-sm"
-                        >
-                          <Checkbox
-                            checked={selection.colors.includes(opt.id)}
-                            onCheckedChange={() =>
+                            checked={selection.purities.includes(purity)}
+                            onToggle={() =>
                               setSelection((prev) => ({
                                 ...prev,
-                                colors: toggleInArray(prev.colors, opt.id),
+                                purities: toggleInArray(prev.purities, purity),
                               }))
                             }
-                          />
-                          {opt.label}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+                          >
+                            {purity}
+                          </SelectChip>
+                        ))}
+                      </div>
+                    </ConfigSection>
+                  )}
 
-                  <div>
-                    <Label className="mb-2 block">Diamond type</Label>
-                    <div className="space-y-2">
+                  <ConfigSection title="Colour">
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {[
+                        ...(goldSelected ? COLOR_OPTIONS : []),
+                        ...(silverSelected ? SILVER_COLOR_OPTIONS : []),
+                      ].map((opt) => (
+                        <SelectChip
+                          key={opt.id}
+                          checked={selection.colors.includes(opt.id)}
+                          onToggle={() =>
+                            setSelection((prev) => ({
+                              ...prev,
+                              colors: toggleInArray(prev.colors, opt.id),
+                            }))
+                          }
+                        >
+                          {opt.label}
+                        </SelectChip>
+                      ))}
+                      {!goldSelected && !silverSelected ? (
+                        <p className="col-span-2 text-[13px] text-muted-foreground">
+                          Select a metal to choose colours.
+                        </p>
+                      ) : null}
+                    </div>
+                  </ConfigSection>
+
+                  <ConfigSection
+                    title="Diamond Type"
+                    hint="Each selected type gets its own price rows and rate."
+                  >
+                    <div className="grid grid-cols-2 gap-2.5">
                       {(
                         [
                           { id: "natural" as const, label: "Natural" },
@@ -1425,39 +1630,72 @@ export function PricingWorkspace({
                           { id: "moissanite" as const, label: "Moissanite" },
                         ] as const
                       ).map((opt) => (
-                        <label
+                        <SelectChip
                           key={opt.id}
-                          className="flex cursor-pointer items-center gap-2.5 text-sm"
+                          checked={selection.diamondTypes.includes(opt.id)}
+                          onToggle={() =>
+                            setSelection((prev) => ({
+                              ...prev,
+                              diamondTypes: toggleInArray(
+                                prev.diamondTypes,
+                                opt.id,
+                              ),
+                            }))
+                          }
                         >
-                          <Checkbox
-                            checked={selection.diamondTypes.includes(opt.id)}
-                            onCheckedChange={() =>
-                              setSelection((prev) => ({
-                                ...prev,
-                                diamondTypes: toggleInArray(
-                                  prev.diamondTypes,
-                                  opt.id,
-                                ),
-                              }))
-                            }
-                          />
                           {opt.label}
-                        </label>
+                        </SelectChip>
                       ))}
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Each selected type gets its own price rows and rate
-                    </p>
-                  </div>
+                  </ConfigSection>
                 </div>
               </section>
 
-              <section className="min-w-0 p-5 lg:col-span-5">
+              <section className="min-w-0 p-5 sm:p-6 lg:col-span-5">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold tracking-tight">Pricing</h2>
-                  <span className="text-xs text-muted-foreground">
+                  <h2 className="text-xl font-semibold tracking-tight text-charcoal">
+                    Pricing
+                  </h2>
+                  <span className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs font-medium text-muted-foreground">
                     All amounts in ₹
                   </span>
+                </div>
+
+                {/* Sticky quick-action bar: lets the user calculate without
+                    scrolling to the bottom of a long form. */}
+                <div className="sticky top-2 z-10 mb-5 flex items-center gap-3 rounded-xl border border-border/80 bg-surface/95 p-2.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/80">
+                  <div className="min-w-0 flex-1 px-1.5">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                      Estimated
+                    </p>
+                    <p className="truncate text-lg font-semibold tabular-nums text-charcoal">
+                      {validationIssues.length
+                        ? "—"
+                        : formatINR(estimatedPreview)}
+                      <span className="ml-2 text-xs font-normal text-champagne">
+                        {variationCount} var.
+                      </span>
+                    </p>
+                  </div>
+                  <Button
+                    className="shrink-0"
+                    size="lg"
+                    variant="champagne"
+                    onClick={() => void runCalculate()}
+                    disabled={validationIssues.length > 0 || isCalculating}
+                  >
+                    {isCalculating ? (
+                      <>
+                        <Loader2 className="animate-spin" />
+                        Calculating…
+                      </>
+                    ) : (
+                      <>
+                        <Calculator className="h-4 w-4" />
+                        Calculate
+                      </>
+                    )}
+                  </Button>
                 </div>
 
                 {validationIssues.length > 0 && (
@@ -1476,92 +1714,44 @@ export function PricingWorkspace({
                 )}
 
                 <div className="space-y-6">
-                  {goldSelected && (
-                    <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-champagne">
-                        Gold
-                      </p>
-                      <Field label="24K Base Rate (₹ / gram)">
-                        <NumberInput
-                          value={pricing.gold24kRate}
-                          onValueChange={(n) =>
-                            setPricing((p) => ({ ...p, gold24kRate: n }))
-                          }
-                        />
-                      </Field>
-                      <div className="mt-3 overflow-hidden rounded-lg border border-border/80">
-                        <table className="w-full text-sm">
-                          <tbody>
-                            {goldPurityRates.map((row) => (
-                              <tr
-                                key={row.purity}
-                                className="border-b border-border/60 last:border-0"
-                              >
-                                <td className="px-3 py-2 font-medium">
-                                  {row.purity}
-                                </td>
-                                <td className="px-3 py-2 text-muted-foreground">
-                                  {formatPercent(row.percentage)}
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums">
-                                  {formatINR(row.ratePerGram, {
-                                    maximumFractionDigits: 0,
-                                    minimumFractionDigits: 0,
-                                  })}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                  {!goldSelected && !silverSelected ? (
+                    <div className="rounded-xl border border-dashed border-border bg-ivory-deep/30 px-4 py-6 text-center text-sm text-muted-foreground">
+                      Select a metal in Variation Configuration to set rates.
                     </div>
+                  ) : null}
+
+                  {goldSelected && (
+                    <MetalRateCard
+                      title="Gold"
+                      accent="gold"
+                      rateLabel="24K Base Rate (₹ / gram)"
+                      rateValue={pricing.gold24kRate}
+                      onRateChange={(n) =>
+                        setPricing((p) => ({ ...p, gold24kRate: n }))
+                      }
+                      rows={goldPurityRates}
+                    />
                   )}
 
                   {silverSelected && (
-                    <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-charcoal-muted">
-                        Silver
-                      </p>
-                      <Field label="Silver Rate (₹ / gram)">
-                        <NumberInput
-                          value={pricing.silverRate}
-                          onValueChange={(n) =>
-                            setPricing((p) => ({ ...p, silverRate: n }))
-                          }
-                        />
-                      </Field>
-                      <div className="mt-3 overflow-hidden rounded-lg border border-border/80">
-                        <table className="w-full text-sm">
-                          <tbody>
-                            {silverPurityRates.map((row) => (
-                              <tr
-                                key={row.purity}
-                                className="border-b border-border/60 last:border-0"
-                              >
-                                <td className="px-3 py-2 font-medium">
-                                  {row.purity}
-                                </td>
-                                <td className="px-3 py-2 text-muted-foreground">
-                                  {formatPercent(row.percentage)}
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums">
-                                  {formatINR(row.ratePerGram, {
-                                    maximumFractionDigits: 0,
-                                    minimumFractionDigits: 0,
-                                  })}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                    <MetalRateCard
+                      title="Silver"
+                      accent="silver"
+                      rateLabel="999 Base Rate (₹ / gram)"
+                      rateValue={pricing.silverRate}
+                      onRateChange={(n) =>
+                        setPricing((p) => ({ ...p, silverRate: n }))
+                      }
+                      rows={silverPurityRates}
+                    />
                   )}
 
-                  <div>
-                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-champagne">
-                      Diamond
-                    </p>
+                  <PricingCard
+                    title="Diamond"
+                    accent="diamond"
+                    meta={`${formatWeight(extracted.diamondWeight, "CT")} · ${extracted.diamondType || "—"
+                      }`}
+                  >
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Field label="Shape">
                         <select
@@ -1644,17 +1834,9 @@ export function PricingWorkspace({
                         />
                       </Field>
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Weight auto-filled:{" "}
-                      {formatWeight(extracted.diamondWeight, "CT")} · Sheet:{" "}
-                      {extracted.diamondType || "—"}
-                    </p>
-                  </div>
+                  </PricingCard>
 
-                  <div>
-                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-champagne">
-                      Charges
-                    </p>
+                  <PricingCard title="Charges" accent="charges">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Field label="Making Charge (₹)">
                         <NumberInput
@@ -1721,10 +1903,10 @@ export function PricingWorkspace({
                         Add Charge
                       </Button>
                     </div>
-                  </div>
+                  </PricingCard>
 
-                  <div className="mt-5 border-t border-border/70 pt-4">
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="border-t border-border/70 pt-4">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <Button
                         className="w-full sm:col-span-2"
                         size="lg"
@@ -1756,62 +1938,32 @@ export function PricingWorkspace({
                         <ArrowLeft className="h-4 w-4" />
                         Back to Verify
                       </Button>
-                      <Button
-                        className="w-full"
-                        size="lg"
-                        variant="outline"
-                        onClick={requestRecalculateAll}
-                        disabled={validationIssues.length > 0 || isCalculating}
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                        Recalculate All
-                      </Button>
                     </div>
                   </div>
                 </div>
               </section>
             </div>
 
-            {showPricingLayout && isCalculating && (
-              <div className="flex flex-col items-center justify-center gap-4 border-t border-border/70 bg-surface-elevated/50 px-5 py-16">
-                <DiamondRingMark size={88} />
-                <div className="text-center">
-                  <p className="text-sm font-medium text-charcoal">
-                    Calculating variation prices…
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Opening results page with {variationCount} variation
-                    {variationCount === 1 ? "" : "s"}
-                  </p>
+            {
+              showPricingLayout && isCalculating && (
+                <div className="flex flex-col items-center justify-center gap-4 border-t border-border/70 bg-surface-elevated/50 px-5 py-16">
+                  <DiamondRingMark size={88} />
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-charcoal">
+                      Calculating variation prices…
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Opening results page with {variationCount} variation
+                      {variationCount === 1 ? "" : "s"}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </CardContent>
-        )}
+              )
+            }
+          </CardContent >
+        )
+        }
       </Card>
-
-      <Dialog open={recalcConfirmOpen} onOpenChange={setRecalcConfirmOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Recalculate all?</DialogTitle>
-            <DialogDescription>
-              Manual overrides on variations will be cleared and prices
-              recalculated from current rates.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRecalcConfirmOpen(false)}
-            >
-              Keep overrides
-            </Button>
-            <Button onClick={confirmRecalculateAll}>
-              Clear &amp; recalculate
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
