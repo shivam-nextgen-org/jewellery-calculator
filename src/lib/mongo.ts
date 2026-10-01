@@ -36,9 +36,26 @@ export async function getMongo(): Promise<MongoClient> {
   return globalForMongo.mongoReady;
 }
 
-/** Database name. Set DATABASE_NAME per environment (e.g. "atelier-prod"); defaults to "atelier". */
+/** Database name taken from the connection string path (`...mongodb.net/<name>?...`), if any. */
+export function databaseNameFromUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  const match = /^mongodb(?:\+srv)?:\/\/[^/]+\/([^?#]*)/.exec(url.trim());
+  const name = match ? decodeURIComponent(match[1]).trim() : "";
+  return name || null;
+}
+
+/**
+ * Database name, in priority order:
+ *   1. DATABASE_NAME
+ *   2. the database in DATABASE_URL (e.g. `/atelier-prod`)
+ *   3. "atelier"
+ */
 export function databaseName(): string {
-  return process.env.DATABASE_NAME?.trim() || "atelier";
+  return (
+    process.env.DATABASE_NAME?.trim() ||
+    databaseNameFromUrl(process.env.DATABASE_URL) ||
+    "atelier"
+  );
 }
 
 export async function getDb(): Promise<Db> {
