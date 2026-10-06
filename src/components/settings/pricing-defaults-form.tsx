@@ -425,13 +425,18 @@ export function PricingDefaultsForm({
       const savedBody = (await res.json()) as PricingDefaults;
 
       // Persist per-stone color/clarity % rules and calculation method.
+      // Defaults PUT already ran syncSettingsRatesToDefaultProfiles(), which
+      // bumps profile updatedAt — so omit updatedAt on this PATCH or we 409
+      // against our own sync. Real multi-tab conflicts still apply on other
+      // profile editors that send updatedAt.
       for (const stoneType of STONE_TYPES) {
         const draft = stoneDrafts[stoneType];
         if (!draft?.id) continue;
+        const { updatedAt: _ignored, ...payload } = stoneDraftToPayload(draft);
         const profileRes = await fetch(`/api/pricing-profiles/${draft.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(stoneDraftToPayload(draft)),
+          body: JSON.stringify(payload),
         });
         if (!profileRes.ok) {
           const body = (await profileRes.json().catch(() => null)) as {
