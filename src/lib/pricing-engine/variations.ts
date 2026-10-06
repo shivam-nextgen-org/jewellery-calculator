@@ -4,17 +4,26 @@ import type {
   GoldMetalOption,
   GoldPurityOption,
   PricingGradeRule,
+  StoneGradeSelection,
 } from "@/types/jewellery";
 import { calculateJewelleryPrice, hasAnyOverride } from "./calculate";
 import { d, toMoneyNumber } from "./decimal";
+import {
+  clarityGradeScaleForStoneType,
+  colorGradeScaleForStoneType,
+} from "./grade-defaults";
 import { calculateRateFromGradeProfile } from "./grade-adjustments";
 import { calculatePurityRatePerGram } from "./gold";
 import type {
   DiamondGradeProfileInput,
+  DiamondGradeProfileMap,
   PricedVariation,
   PricingSessionInput,
+  VariationBreakdown,
+  VariationMatrixInput,
   VariationOverrides,
   VariationSpec,
+  VariationSpecInput,
 } from "./types";
 
 const METAL_LABELS: Record<GoldMetalOption, string> = {
@@ -78,18 +87,12 @@ export function formatDiamondGradeLabel(
   return c || cl || null;
 }
 
-export function countVariations(
+/** How many real metal × purity × colour pairings the selection spans. */
+export function countMetalCombinations(
   metals: GoldMetalOption[],
   purities: GoldPurityOption[],
   colors: GoldColorOption[],
-  diamondTypes: DiamondTypeOption[],
-  diamondColors?: string[],
-  diamondClarities?: string[],
 ): number {
-  const dTypes = diamondTypes.length > 0 ? diamondTypes.length : 1;
-  const colorCount = diamondColors && diamondColors.length > 0 ? diamondColors.length : 1;
-  const clarityCount =
-    diamondClarities && diamondClarities.length > 0 ? diamondClarities.length : 1;
   let combos = 0;
   for (const metal of metals) {
     for (const purity of purities) {
@@ -98,7 +101,118 @@ export function countVariations(
       }
     }
   }
-  return combos * dTypes * colorCount * clarityCount;
+  return combos;
+}
+
+/** Grades a stone type may be priced at — its % rules, else its own scale. */
+function allowedGradesForStoneType(
+  stoneType: DiamondTypeOption,
+  axis: "color" | "clarity",
+  gradeByType: DiamondGradeProfileMap | undefined,
+): readonly string[] {
+  const profile = gradeByType?.[stoneType];
+  const rules = axis === "color" ? profile?.colorRules : profile?.clarityRules;
+  if (rules && rules.length > 0) return rules.map((r) => r.grade);
+  return axis === "color"
+    ? colorGradeScaleForStoneType(stoneType)
+    : clarityGradeScaleForStoneType(stoneType);
+}
+
+function keepGradesOnScale(
+  grades: string[] | undefined,
+  allowed: readonly string[],
+): string[] {
+  if (!grades || grades.length === 0) return [];
+  const byLower = new Map(allowed.map((g) => [g.trim().toLowerCase(), g]));
+  const kept: string[] = [];
+  for (const grade of grades) {
+    const match = byLower.get(grade.trim().toLowerCase());
+    if (match && !kept.includes(match)) kept.push(match);
+  }
+  return kept;
+}
+
+/**
+ * Grades that actually apply to one stone type. Per-stone selections win; a
+ * legacy global selection is narrowed to the grades on that stone's scale, so
+ * Moissanite bands never build Natural / Lab Grown rows and GIA grades never
+ * build Moissanite rows.
+ */
+export function resolveStoneGrades(
+  input: VariationMatrixInput,
+  stoneType: DiamondTypeOption,
+): StoneGradeSelection {
+  const picked = input.stoneGrades?.[stoneType];
+  const colors = picked ? picked.colors : input.diamondColors;
+  const clarities = picked ? picked.clarities : input.diamondClarities;
+  return {
+    colors: keepGradesOnScale(
+      colors,
+      allowedGradesForStoneType(stoneType, "color", input.diamondGradeByType),
+    ),
+    clarities: keepGradesOnScale(
+      clarities,
+      allowedGradesForStoneType(stoneType, "clarity", input.diamondGradeByType),
+    ),
+  };
+}
+
+function selectedStoneTypes(
+  diamondTypes: DiamondTypeOption[],
+): DiamondTypeOption[] {
+  return diamondTypes.length > 0 ? diamondTypes : ["natural"];
+}
+
+/** Price rows one stone type adds per metal combination (never fewer than 1). */
+export function countStoneRows(
+  input: VariationMatrixInput,
+  stoneType: DiamondTypeOption,
+): number {
+  const grades = resolveStoneGrades(input, stoneType);
+  const colors = grades.colors.length || 1;
+  const clarities = grades.clarities.length || 1;
+  return colors * clarities;
+}
+
+/**
+ * Variations = valid metal × purity × colour pairings × the sum of each
+ * selected stone type's own colour × clarity grid.
+ */
+export function countVariations(input: VariationMatrixInput): number {
+  const metalCombinations = countMetalCombinations(
+    input.metals,
+    input.purities,
+    input.colors,
+  );
+  const stoneRows = selectedStoneTypes(input.diamondTypes).reduce(
+    (total, stoneType) => total + countStoneRows(input, stoneType),
+    0,
+  );
+  return metalCombinations * stoneRows;
+}
+
+/** Count split the way the config panel shows it. */
+export function variationBreakdown(
+  input: VariationMatrixInput,
+): VariationBreakdown {
+  const metalCombinations = countMetalCombinations(
+    input.metals,
+    input.purities,
+    input.colors,
+  );
+  const rowsByStoneType: Partial<Record<DiamondTypeOption, number>> = {};
+  let stoneRows = 0;
+  for (const stoneType of selectedStoneTypes(input.diamondTypes)) {
+    const rows = countStoneRows(input, stoneType);
+    rowsByStoneType[stoneType] = rows;
+    stoneRows += rows;
+  }
+  return {
+    metalCombinations,
+    stoneRows,
+    rowsByStoneType,
+    total: metalCombinations * stoneRows,
+  };
 }
 
 function rateForDiamondType(
@@ -156,13 +270,10 @@ function adjustedDiamondRate(
 }
 
 function gradeAxes(
-  diamondColors?: string[],
-  diamondClarities?: string[],
+  grades: StoneGradeSelection,
 ): { color: string | null; clarity: string | null }[] {
-  const colors =
-    diamondColors && diamondColors.length > 0 ? diamondColors : [null];
-  const clarities =
-    diamondClarities && diamondClarities.length > 0 ? diamondClarities : [null];
+  const colors = grades.colors.length > 0 ? grades.colors : [null];
+  const clarities = grades.clarities.length > 0 ? grades.clarities : [null];
   const axes: { color: string | null; clarity: string | null }[] = [];
   for (const color of colors) {
     for (const clarity of clarities) {
@@ -173,31 +284,32 @@ function gradeAxes(
 }
 
 export function generateVariationSpecs(
-  metals: GoldMetalOption[],
-  purities: GoldPurityOption[],
-  colors: GoldColorOption[],
-  diamondTypes: DiamondTypeOption[],
-  gold24kRate: PricingSessionInput["gold24kRate"],
-  purityPercentages: PricingSessionInput["purityPercentages"],
-  diamondRateNatural: PricingSessionInput["diamondRateNatural"],
-  diamondRateLabGrown: PricingSessionInput["diamondRateLabGrown"],
-  diamondRateMoissanite: PricingSessionInput["diamondRateMoissanite"] = 0,
-  silverRate: PricingSessionInput["silverRate"] = 0,
-  diamondColors?: string[],
-  diamondClarities?: string[],
-  diamondGradeByType?: PricingSessionInput["diamondGradeByType"],
+  input: VariationSpecInput,
 ): VariationSpec[] {
+  const {
+    metals,
+    purities,
+    colors,
+    gold24kRate,
+    purityPercentages,
+    diamondRateNatural,
+    diamondRateLabGrown,
+    diamondRateMoissanite = 0,
+    silverRate = 0,
+    diamondGradeByType,
+  } = input;
   const specs: VariationSpec[] = [];
-  const types =
-    diamondTypes.length > 0 ? diamondTypes : (["natural"] as DiamondTypeOption[]);
-  const grades = gradeAxes(diamondColors, diamondClarities);
+  const types = selectedStoneTypes(input.diamondTypes);
+  const gradesByType = new Map(
+    types.map((type) => [type, gradeAxes(resolveStoneGrades(input, type))]),
+  );
 
   for (const metal of metals) {
     for (const purity of purities) {
       for (const color of colors) {
         if (!isValidCombination(metal, purity, color)) continue;
         for (const diamondType of types) {
-          for (const grade of grades) {
+          for (const grade of gradesByType.get(diamondType) ?? []) {
             const percent = purityPercentages[purity] ?? 0;
             const baseRate = baseRateForPurity(purity, gold24kRate, silverRate);
             const ratePerGram = calculatePurityRatePerGram(baseRate, percent);
@@ -255,21 +367,7 @@ export function generateVariationSpecs(
 export function calculateAllVariations(
   session: PricingSessionInput,
 ): PricedVariation[] {
-  const specs = generateVariationSpecs(
-    session.metals,
-    session.purities,
-    session.colors,
-    session.diamondTypes,
-    session.gold24kRate,
-    session.purityPercentages,
-    session.diamondRateNatural,
-    session.diamondRateLabGrown,
-    session.diamondRateMoissanite ?? 0,
-    session.silverRate ?? 0,
-    session.diamondColors,
-    session.diamondClarities,
-    session.diamondGradeByType,
-  );
+  const specs = generateVariationSpecs(session);
 
   return specs.map((spec) => {
     const overrides: VariationOverrides | undefined =

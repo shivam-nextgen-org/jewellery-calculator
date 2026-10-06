@@ -136,15 +136,36 @@ export interface PricingDefaults {
   silverRateLastUpdatedAt?: string | null;
 }
 
+/** Colour / clarity grades picked for one stone type. */
+export interface StoneGradeSelection {
+  /** Colour grades on that stone's own scale (D–M, or Colorless/Warm). */
+  colors: string[];
+  /** Clarity grades on that stone's own scale (FL–I3, or FL/IF–SI). */
+  clarities: string[];
+}
+
+export type StoneGradeSelectionMap = Partial<
+  Record<DiamondTypeOption, StoneGradeSelection>
+>;
+
 export interface VariationSelection {
   metals: GoldMetalOption[];
   purities: GoldPurityOption[];
   colors: GoldColorOption[];
   diamondTypes: DiamondTypeOption[];
-  /** Diamond colour grades included in the price matrix (e.g. G, D). */
-  diamondColors: string[];
-  /** Diamond clarity grades included in the price matrix (e.g. VS1, VVS1). */
-  diamondClarities: string[];
+  /**
+   * Grades per stone type — GIA grades for natural / lab-grown, commercial
+   * bands for moissanite. Never shared, so a moissanite band can't produce a
+   * natural diamond row.
+   */
+  stoneGrades: StoneGradeSelectionMap;
+  /**
+   * @deprecated Global grade axes from older drafts. Read by
+   * migrateVariationSelection() and folded into {@link stoneGrades}.
+   */
+  diamondColors?: string[];
+  /** @deprecated See {@link diamondColors}. */
+  diamondClarities?: string[];
 }
 
 export interface PricingFormState {

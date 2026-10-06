@@ -111,30 +111,59 @@ export interface DiamondGradeProfileInput {
   clarityRules: import("@/types/jewellery").PricingGradeRule[];
 }
 
-export interface PricingSessionInput {
-  netWeight: DecimalInput;
-  diamondWeight: DecimalInput;
-  gold24kRate: DecimalInput;
-  /** Pure (999) silver rate ₹/gram — used for silver purities (925/958/999). */
-  silverRate: DecimalInput;
-  purityPercentages: Partial<Record<GoldPurityOption, DecimalInput>>;
+/** Grade adjustment rules keyed by stone type. */
+export type DiamondGradeProfileMap = Partial<
+  Record<import("@/types/jewellery").DiamondTypeOption, DiamondGradeProfileInput>
+>;
+
+/**
+ * Which metal / purity / colour and stone grades the variation matrix spans.
+ * Grades are stored per stone type so each scale stays on its own stone.
+ */
+export interface VariationMatrixInput {
   metals: GoldMetalOption[];
   purities: GoldPurityOption[];
   colors: GoldColorOption[];
   diamondTypes: import("@/types/jewellery").DiamondTypeOption[];
-  /** Selected diamond colour grades for the variation matrix (e.g. G, D). */
+  /** Selected colour / clarity grades keyed by stone type. */
+  stoneGrades?: import("@/types/jewellery").StoneGradeSelectionMap;
+  /**
+   * @deprecated Global grade axes from older drafts. Applied to a stone type
+   * only for the grades that exist on that stone's scale.
+   */
   diamondColors?: string[];
-  /** Selected diamond clarity grades for the variation matrix (e.g. VS1, VVS1). */
+  /** @deprecated See {@link diamondColors}. */
   diamondClarities?: string[];
-  /** Grade adjustment rules keyed by stone type. */
-  diamondGradeByType?: Partial<
-    Record<
-      import("@/types/jewellery").DiamondTypeOption,
-      DiamondGradeProfileInput
-    >
+  diamondGradeByType?: DiamondGradeProfileMap;
+}
+
+/** Variation count split the way the config panel reads it. */
+export interface VariationBreakdown {
+  /** Real metal × purity × colour pairings. */
+  metalCombinations: number;
+  /** Price rows every selected stone type adds per metal combination. */
+  stoneRows: number;
+  rowsByStoneType: Partial<
+    Record<import("@/types/jewellery").DiamondTypeOption, number>
   >;
+  total: number;
+}
+
+/** Everything {@link VariationSpec} generation needs — matrix plus rates. */
+export interface VariationSpecInput extends VariationMatrixInput {
+  gold24kRate: DecimalInput;
+  /** Pure (999) silver rate ₹/gram — used for silver purities (925/958/999). */
+  silverRate?: DecimalInput;
+  purityPercentages: Partial<Record<GoldPurityOption, DecimalInput>>;
   diamondRateNatural: DecimalInput;
   diamondRateLabGrown: DecimalInput;
+  diamondRateMoissanite?: DecimalInput;
+}
+
+export interface PricingSessionInput extends VariationSpecInput {
+  netWeight: DecimalInput;
+  diamondWeight: DecimalInput;
+  silverRate: DecimalInput;
   diamondRateMoissanite: DecimalInput;
   /**
    * @deprecated Prefer per-stone discount fields. Used as fallback when a

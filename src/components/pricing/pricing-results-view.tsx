@@ -102,12 +102,7 @@ export function PricingResultsView() {
       diamondTypes: draft.selection.diamondTypes?.length
         ? draft.selection.diamondTypes
         : ["natural", "lab-grown"],
-      diamondColors: draft.selection.diamondColors?.length
-        ? draft.selection.diamondColors
-        : undefined,
-      diamondClarities: draft.selection.diamondClarities?.length
-        ? draft.selection.diamondClarities
-        : undefined,
+      stoneGrades: draft.selection.stoneGrades,
       diamondGradeByType: draft.diamondGradeByType,
       diamondRateNatural:
         draft.pricing.diamondRateNatural ??
@@ -149,18 +144,7 @@ export function PricingResultsView() {
     return calculateAllVariations(sessionInput);
   }, [sessionInput, validationIssues.length]);
 
-  const variationCount = draft
-    ? countVariations(
-      draft.selection.metals,
-      draft.selection.purities,
-      draft.selection.colors,
-      draft.selection.diamondTypes?.length
-        ? draft.selection.diamondTypes
-        : ["natural", "lab-grown"],
-      draft.selection.diamondColors,
-      draft.selection.diamondClarities,
-    )
-    : 0;
+  const variationCount = sessionInput ? countVariations(sessionInput) : 0;
 
   const priceRange = useMemo(
     () => getPriceRange(pricedVariations),

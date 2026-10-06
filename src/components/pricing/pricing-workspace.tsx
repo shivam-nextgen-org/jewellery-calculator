@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Calculator,
-  Check,
   Download,
   FileSpreadsheet,
   Loader2,
@@ -30,6 +29,7 @@ import {
   type ExcelTableRow,
 } from "@/components/pricing/excel-rows-table";
 import { StepIndicator } from "@/components/pricing/step-indicator";
+import { VariationConfigPanel } from "@/components/pricing/variation-config-panel";
 import {
   EXCEL_ACCEPT,
   EXCEL_MAX_BYTES,
@@ -53,17 +53,20 @@ import {
 import {
   buildPurityRateTable,
   calculateAllVariations,
-  countVariations,
   validatePricingSession,
+  variationBreakdown,
   type PricingSessionInput,
   type VariationOverrides,
 } from "@/lib/pricing-engine";
+import {
+  GOLD_PURITY_OPTIONS,
+  SILVER_PURITY_OPTIONS,
+  migrateVariationSelection,
+  type StoneGradeSourceMap,
+} from "@/lib/variation-selection";
 import type {
   ChargeCalcType,
   DiamondTypeOption,
-  GoldColorOption,
-  GoldMetalOption,
-  GoldPurityOption,
   JewelleryExtractedData,
   OtherCharge,
   PricingDefaults,
@@ -171,35 +174,6 @@ const BLANK_EXTRACTED: JewelleryExtractedData = {
   certificatePrice: null,
 };
 
-const METAL_OPTIONS: { id: GoldMetalOption; label: string }[] = [
-  { id: "gold", label: "Gold" },
-  { id: "silver", label: "Silver" },
-];
-
-const GOLD_PURITY_OPTIONS: GoldPurityOption[] = [
-  "24K",
-  "22K",
-  "18K",
-  "14K",
-  "10K",
-  "9K",
-];
-
-const SILVER_PURITY_OPTIONS: GoldPurityOption[] = ["999", "958", "925"];
-
-const COLOR_OPTIONS: { id: GoldColorOption; label: string }[] = [
-  { id: "yellow", label: "Yellow Gold" },
-  { id: "white", label: "White Gold" },
-  { id: "rose", label: "Rose Gold" },
-];
-
-const SILVER_COLOR_OPTIONS: { id: GoldColorOption; label: string }[] = [
-  { id: "sterling", label: "Sterling Silver" },
-];
-
-const GOLD_COLOR_IDS = COLOR_OPTIONS.map((c) => c.id);
-const SILVER_COLOR_IDS = SILVER_COLOR_OPTIONS.map((c) => c.id);
-
 function Field({
   label,
   children,
@@ -212,76 +186,6 @@ function Field({
       <Label>{label}</Label>
       {children}
     </div>
-  );
-}
-
-/** A single large, tappable selection chip used across the config panel. */
-function SelectChip({
-  checked,
-  onToggle,
-  children,
-  disabled,
-}: {
-  checked: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={onToggle}
-      className={cn(
-        "flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left text-[15px] font-medium transition-all",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-champagne/40",
-        checked
-          ? "border-champagne bg-champagne-muted/40 text-charcoal shadow-sm"
-          : "border-border bg-surface text-charcoal-muted hover:border-champagne/40 hover:bg-ivory-deep/50",
-        disabled && "cursor-not-allowed opacity-50",
-      )}
-    >
-      <span
-        className={cn(
-          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
-          checked
-            ? "border-champagne bg-champagne text-charcoal"
-            : "border-border bg-surface",
-        )}
-        aria-hidden
-      >
-        {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
-      </span>
-      {children}
-    </button>
-  );
-}
-
-/** A titled section block for the Variation Configuration panel. */
-function ConfigSection({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="h-4 w-1 rounded-full bg-champagne" aria-hidden />
-        <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-charcoal">
-          {title}
-        </h3>
-      </div>
-      {hint ? (
-        <p className="-mt-1 text-[13px] text-muted-foreground">{hint}</p>
-      ) : null}
-      {children}
-    </section>
   );
 }
 
@@ -447,12 +351,6 @@ function DataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function toggleInArray<T>(list: T[], value: T): T[] {
-  return list.includes(value)
-    ? list.filter((item) => item !== value)
-    : [...list, value];
-}
-
 const WIZARD_STEPS: PricingStep[] = [
   "import",
   "verify",
@@ -523,22 +421,18 @@ export function PricingWorkspace({
     ),
   );
 
-  const [selection, setSelection] = useState<VariationSelection>({
-    metals: ["gold"],
-    purities: ["10K", "14K", "18K"],
-    colors: ["yellow", "white", "rose"],
-    diamondTypes: ["natural", "lab-grown"],
-    diamondColors: [
-      initialDefaults?.defaultDiamondColorGrade ??
-        initialProfiles?.natural?.baseColorGrade ??
-        "G",
-    ],
-    diamondClarities: [
-      initialDefaults?.defaultDiamondClarityGrade ??
-        initialProfiles?.natural?.baseClarityGrade ??
-        "VS1",
-    ],
-  });
+  const [selection, setSelection] = useState<VariationSelection>(() =>
+    migrateVariationSelection(
+      {
+        metals: ["gold"],
+        purities: ["10K", "14K", "18K"],
+        colors: ["yellow", "white", "rose"],
+        diamondTypes: ["natural", "lab-grown"],
+        stoneGrades: {},
+      },
+      initialProfiles,
+    ),
+  );
 
   const [overridesByVariationId, setOverridesByVariationId] = useState<
     Record<string, VariationOverrides>
@@ -585,7 +479,7 @@ export function PricingWorkspace({
       }
     }
     return {
-      version: 2 as const,
+      version: 3 as const,
       extracted: overrides?.extracted ?? extracted,
       pricing,
       selection: overrides?.selection ?? selection,
@@ -630,26 +524,7 @@ export function PricingWorkspace({
     });
     setPricing(restoredPricing);
     setDiscountEnabled(hasAnyPricingDiamondDiscount(restoredPricing));
-    setSelection({
-      ...draft.selection,
-      diamondTypes: draft.selection.diamondTypes?.length
-        ? draft.selection.diamondTypes
-        : ["natural", "lab-grown"],
-      diamondColors: draft.selection.diamondColors?.length
-        ? draft.selection.diamondColors
-        : [
-            defaults.defaultDiamondColorGrade ||
-              diamondProfiles.natural?.baseColorGrade ||
-              "G",
-          ],
-      diamondClarities: draft.selection.diamondClarities?.length
-        ? draft.selection.diamondClarities
-        : [
-            defaults.defaultDiamondClarityGrade ||
-              diamondProfiles.natural?.baseClarityGrade ||
-              "VS1",
-          ],
-    });
+    setSelection(migrateVariationSelection(draft.selection, diamondProfiles));
     setOverridesByVariationId(draft.overridesByVariationId);
     const mode: PricingEntryMode =
       draft.entryMode ??
@@ -769,23 +644,8 @@ export function PricingWorkspace({
         const nextPricing = pricingFromDefaults(nextDefaults, nextProfiles);
         setPricing(nextPricing);
         setDiscountEnabled(hasAnyPricingDiamondDiscount(nextPricing));
-        setSelection((prev) => ({
-          ...prev,
-          diamondColors: prev.diamondColors?.length
-            ? prev.diamondColors
-            : [
-                nextDefaults.defaultDiamondColorGrade ||
-                  nextProfiles.natural?.baseColorGrade ||
-                  "G",
-              ],
-          diamondClarities: prev.diamondClarities?.length
-            ? prev.diamondClarities
-            : [
-                nextDefaults.defaultDiamondClarityGrade ||
-                  nextProfiles.natural?.baseClarityGrade ||
-                  "VS1",
-              ],
-        }));
+        // Settings may have changed the grade scales — re-seed against them.
+        setSelection((prev) => migrateVariationSelection(prev, nextProfiles));
       } catch {
         // Keep server-rendered initial props if the refresh fetch fails.
       }
@@ -842,8 +702,7 @@ export function PricingWorkspace({
       purities: selection.purities,
       colors: selection.colors,
       diamondTypes: selection.diamondTypes,
-      diamondColors: selection.diamondColors,
-      diamondClarities: selection.diamondClarities,
+      stoneGrades: selection.stoneGrades,
       diamondGradeByType: gradeByType,
       diamondRateNatural: pricing.diamondRateNatural,
       diamondRateLabGrown: pricing.diamondRateLabGrown,
@@ -876,14 +735,11 @@ export function PricingWorkspace({
     [sessionInput],
   );
 
-  const variationCount = countVariations(
-    selection.metals,
-    selection.purities,
-    selection.colors,
-    selection.diamondTypes,
-    selection.diamondColors,
-    selection.diamondClarities,
+  const breakdown = useMemo(
+    () => variationBreakdown(sessionInput),
+    [sessionInput],
   );
+  const variationCount = breakdown.total;
 
   const pricedVariations = useMemo(() => {
     if (validationIssues.length > 0) return [];
@@ -892,21 +748,7 @@ export function PricingWorkspace({
 
   const estimatedPreview = pricedVariations[0]?.calculation.finalPrice ?? "0";
 
-  const gradeProfileForUi = useMemo(() => {
-    for (const type of selection.diamondTypes) {
-      if (diamondProfiles[type]) return diamondProfiles[type]!;
-    }
-    return (
-      diamondProfiles.natural ??
-      diamondProfiles["lab-grown"] ??
-      diamondProfiles.moissanite ??
-      null
-    );
-  }, [selection.diamondTypes, diamondProfiles]);
-
-  const diamondColorOptions = gradeProfileForUi?.colorRules.map((r) => r.grade) ?? [];
-  const diamondClarityOptions =
-    gradeProfileForUi?.clarityRules.map((r) => r.grade) ?? [];
+  const gradeSources: StoneGradeSourceMap = diamondProfiles;
 
   // Gold purities price off the gold 24K rate; silver purities off the silver
   // rate. Kept as two separate tables so Gold and Silver never mix.
@@ -967,7 +809,11 @@ export function PricingWorkspace({
     const row = rows[index];
     if (!row || !row.validation.valid) return;
 
-    const nextSelection = selectionFromExtractedRow(row.data, selection);
+    const nextSelection = selectionFromExtractedRow(
+      row.data,
+      selection,
+      gradeSources,
+    );
     const nextPricing: PricingFormState = {
       ...pricing,
       diamondShape: diamondShapeFromExtracted(row.data, pricing.diamondShape),
@@ -984,7 +830,7 @@ export function PricingWorkspace({
     }
 
     savePricingDraft({
-      version: 2,
+      version: 3,
       extracted: row.data,
       pricing: nextPricing,
       selection: nextSelection,
@@ -1054,7 +900,11 @@ export function PricingWorkspace({
       setOverridesByVariationId({});
 
       const row = tableRows[firstValid];
-      const nextSelection = selectionFromExtractedRow(row.data, selection);
+      const nextSelection = selectionFromExtractedRow(
+        row.data,
+        selection,
+        gradeSources,
+      );
       const nextPricing: PricingFormState = {
         ...pricing,
         diamondShape: diamondShapeFromExtracted(row.data, pricing.diamondShape),
@@ -1073,7 +923,7 @@ export function PricingWorkspace({
       setImportError(warn);
 
       savePricingDraft({
-        version: 2,
+        version: 3,
         extracted: row.data,
         pricing: nextPricing,
         selection: nextSelection,
@@ -1121,12 +971,7 @@ export function PricingWorkspace({
     setEntryMode("manual");
     setExtracted(BLANK_EXTRACTED);
     setImportError(null);
-    setSelection((prev) => ({
-      ...prev,
-      diamondTypes: prev.diamondTypes.length
-        ? prev.diamondTypes
-        : ["natural", "lab-grown"],
-    }));
+    setSelection((prev) => migrateVariationSelection(prev, gradeSources));
     setOverridesByVariationId({});
     savePricingDraft(
       buildDraft({
@@ -1614,15 +1459,20 @@ export function PricingWorkspace({
                     onClick={() => {
                       const typeLower = extracted.diamondType.toLowerCase();
                       const shapeLower = extracted.diamondShape.toLowerCase();
-                      setSelection((prev) => ({
-                        ...prev,
-                        diamondTypes:
-                          prev.diamondTypes.length > 0
-                            ? prev.diamondTypes
-                            : typeLower.includes("lab")
-                              ? ["lab-grown", "natural"]
-                              : ["natural", "lab-grown"],
-                      }));
+                      setSelection((prev) =>
+                        migrateVariationSelection(
+                          {
+                            ...prev,
+                            diamondTypes:
+                              prev.diamondTypes.length > 0
+                                ? prev.diamondTypes
+                                : typeLower.includes("lab")
+                                  ? ["lab-grown", "natural"]
+                                  : ["natural", "lab-grown"],
+                          },
+                          gradeSources,
+                        ),
+                      );
                       setPricing((p) => ({
                         ...p,
                         diamondShape: (
@@ -1700,226 +1550,12 @@ export function PricingWorkspace({
               </aside>
 
               <section className="min-w-0 border-b border-border/70 bg-ivory-deep/20 p-5 sm:p-6 lg:col-span-4 lg:border-b-0 lg:border-r">
-                <div className="mb-5 flex items-start justify-between gap-2">
-                  <div>
-                    <h2 className="text-xl font-semibold tracking-tight text-charcoal">
-                      Variation Configuration
-                    </h2>
-                    <p className="mt-0.5 text-[13px] text-muted-foreground">
-                      Pick metals, purities, colours and diamond types
-                    </p>
-                  </div>
-                  <Badge className="shrink-0 border-charcoal bg-charcoal text-ivory">
-                    {variationCount} selected
-                  </Badge>
-                </div>
-
-                <div className="space-y-6">
-                  <ConfigSection
-                    title="Metal"
-                    hint="Select gold, silver, or both — each is priced on its own rate."
-                  >
-                    <div className="grid grid-cols-2 gap-2.5">
-                      {METAL_OPTIONS.map((opt) => (
-                        <SelectChip
-                          key={opt.id}
-                          checked={selection.metals.includes(opt.id)}
-                          onToggle={() =>
-                            setSelection((prev) => {
-                              const removing = prev.metals.includes(opt.id);
-                              const nextMetals = toggleInArray(
-                                prev.metals,
-                                opt.id,
-                              );
-                              if (!removing) {
-                                return { ...prev, metals: nextMetals };
-                              }
-                              // Removing a metal drops only that metal's
-                              // purities and colours; the other metal stays.
-                              const droppedPurities =
-                                opt.id === "silver"
-                                  ? SILVER_PURITY_OPTIONS
-                                  : GOLD_PURITY_OPTIONS;
-                              const droppedColors =
-                                opt.id === "silver"
-                                  ? SILVER_COLOR_IDS
-                                  : GOLD_COLOR_IDS;
-                              return {
-                                ...prev,
-                                metals: nextMetals,
-                                purities: prev.purities.filter(
-                                  (p) => !droppedPurities.includes(p),
-                                ),
-                                colors: prev.colors.filter(
-                                  (c) => !droppedColors.includes(c),
-                                ),
-                              };
-                            })
-                          }
-                        >
-                          {opt.label}
-                        </SelectChip>
-                      ))}
-                    </div>
-                  </ConfigSection>
-
-                  {goldSelected && (
-                    <ConfigSection title="Gold Purity">
-                      <div className="grid grid-cols-3 gap-2.5">
-                        {GOLD_PURITY_OPTIONS.map((purity) => (
-                          <SelectChip
-                            key={purity}
-                            checked={selection.purities.includes(purity)}
-                            onToggle={() =>
-                              setSelection((prev) => ({
-                                ...prev,
-                                purities: toggleInArray(prev.purities, purity),
-                              }))
-                            }
-                          >
-                            {purity}
-                          </SelectChip>
-                        ))}
-                      </div>
-                    </ConfigSection>
-                  )}
-
-                  {silverSelected && (
-                    <ConfigSection title="Silver Purity">
-                      <div className="grid grid-cols-3 gap-2.5">
-                        {SILVER_PURITY_OPTIONS.map((purity) => (
-                          <SelectChip
-                            key={purity}
-                            checked={selection.purities.includes(purity)}
-                            onToggle={() =>
-                              setSelection((prev) => ({
-                                ...prev,
-                                purities: toggleInArray(prev.purities, purity),
-                              }))
-                            }
-                          >
-                            {purity}
-                          </SelectChip>
-                        ))}
-                      </div>
-                    </ConfigSection>
-                  )}
-
-                  <ConfigSection
-                    title="Metal colour"
-                    hint="Yellow, white, or rose for gold; sterling for silver."
-                  >
-                    <div className="grid grid-cols-2 gap-2.5">
-                      {[
-                        ...(goldSelected ? COLOR_OPTIONS : []),
-                        ...(silverSelected ? SILVER_COLOR_OPTIONS : []),
-                      ].map((opt) => (
-                        <SelectChip
-                          key={opt.id}
-                          checked={selection.colors.includes(opt.id)}
-                          onToggle={() =>
-                            setSelection((prev) => ({
-                              ...prev,
-                              colors: toggleInArray(prev.colors, opt.id),
-                            }))
-                          }
-                        >
-                          {opt.label}
-                        </SelectChip>
-                      ))}
-                      {!goldSelected && !silverSelected ? (
-                        <p className="col-span-2 text-[13px] text-muted-foreground">
-                          Select a metal to choose colours.
-                        </p>
-                      ) : null}
-                    </div>
-                  </ConfigSection>
-
-                  <ConfigSection
-                    title="Diamond Type"
-                    hint="Each selected type gets its own price rows and rate."
-                  >
-                    <div className="grid grid-cols-2 gap-2.5">
-                      {(
-                        [
-                          { id: "natural" as const, label: "Natural" },
-                          { id: "lab-grown" as const, label: "Lab Grown" },
-                          { id: "moissanite" as const, label: "Moissanite" },
-                        ] as const
-                      ).map((opt) => (
-                        <SelectChip
-                          key={opt.id}
-                          checked={selection.diamondTypes.includes(opt.id)}
-                          onToggle={() =>
-                            setSelection((prev) => ({
-                              ...prev,
-                              diamondTypes: toggleInArray(
-                                prev.diamondTypes,
-                                opt.id,
-                              ),
-                            }))
-                          }
-                        >
-                          {opt.label}
-                        </SelectChip>
-                      ))}
-                    </div>
-                  </ConfigSection>
-
-                  {diamondColorOptions.length > 0 ? (
-                    <ConfigSection
-                      title="Diamond colour"
-                      hint="Select grades to price — labels look like G-VS1."
-                    >
-                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                        {diamondColorOptions.map((grade) => (
-                          <SelectChip
-                            key={grade}
-                            checked={selection.diamondColors.includes(grade)}
-                            onToggle={() =>
-                              setSelection((prev) => ({
-                                ...prev,
-                                diamondColors: toggleInArray(
-                                  prev.diamondColors,
-                                  grade,
-                                ),
-                              }))
-                            }
-                          >
-                            {grade}
-                          </SelectChip>
-                        ))}
-                      </div>
-                    </ConfigSection>
-                  ) : null}
-
-                  {diamondClarityOptions.length > 0 ? (
-                    <ConfigSection
-                      title="Diamond clarity"
-                      hint="Pair with colour grades for a full quote matrix."
-                    >
-                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                        {diamondClarityOptions.map((grade) => (
-                          <SelectChip
-                            key={grade}
-                            checked={selection.diamondClarities.includes(grade)}
-                            onToggle={() =>
-                              setSelection((prev) => ({
-                                ...prev,
-                                diamondClarities: toggleInArray(
-                                  prev.diamondClarities,
-                                  grade,
-                                ),
-                              }))
-                            }
-                          >
-                            {grade}
-                          </SelectChip>
-                        ))}
-                      </div>
-                    </ConfigSection>
-                  ) : null}
-                </div>
+                <VariationConfigPanel
+                  selection={selection}
+                  onSelectionChange={setSelection}
+                  gradeSources={gradeSources}
+                  breakdown={breakdown}
+                />
               </section>
 
               <section className="min-w-0 p-5 sm:p-6 lg:col-span-5">
@@ -2144,10 +1780,14 @@ export function PricingWorkspace({
                       </Field>
                     </div>
                     <p className="mt-3 text-xs text-muted-foreground">
-                      Base rates come from Settings. Colour and clarity chips on the
-                      left build quote lines like{" "}
-                      <span className="font-medium text-charcoal">18K Yellow · Natural · G-VS1</span>
-                      , applying your +/- % rules automatically.
+                      Base rates come from Settings. Each stone&apos;s own grade
+                      chips build quote lines like{" "}
+                      <span className="font-medium text-charcoal">18K Yellow · Natural · G-VS1</span>{" "}
+                      or{" "}
+                      <span className="font-medium text-charcoal">
+                        18K Yellow · Moissanite · Colorless-VS
+                      </span>
+                      , applying that stone&apos;s +/- % rules automatically.
                     </p>
                   </PricingCard>
 

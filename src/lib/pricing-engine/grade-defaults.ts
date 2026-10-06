@@ -66,6 +66,41 @@ export function defaultClarityRulesForStoneType(
   return zeroRules(DIAMOND_CLARITY_GRADES);
 }
 
+/** Colour grades that belong to a stone type's own scale. */
+export function colorGradeScaleForStoneType(
+  stoneType: DiamondTypeOption,
+): readonly string[] {
+  return stoneType === "moissanite"
+    ? MOISSANITE_COLOR_GRADES
+    : DIAMOND_COLOR_GRADES;
+}
+
+/** Clarity grades that belong to a stone type's own scale. */
+export function clarityGradeScaleForStoneType(
+  stoneType: DiamondTypeOption,
+): readonly string[] {
+  return stoneType === "moissanite"
+    ? MOISSANITE_CLARITY_GRADES
+    : DIAMOND_CLARITY_GRADES;
+}
+
+/**
+ * True when a grade belongs to this stone type's scale — the guard that keeps
+ * moissanite bands out of diamond rows and GIA grades out of moissanite rows.
+ */
+export function isGradeForStoneType(
+  stoneType: DiamondTypeOption,
+  axis: "color" | "clarity",
+  grade: string,
+): boolean {
+  const scale =
+    axis === "color"
+      ? colorGradeScaleForStoneType(stoneType)
+      : clarityGradeScaleForStoneType(stoneType);
+  const needle = grade.trim().toLowerCase();
+  return scale.some((g) => g.toLowerCase() === needle);
+}
+
 export function defaultBaseColorForStoneType(
   stoneType: DiamondTypeOption,
 ): string {

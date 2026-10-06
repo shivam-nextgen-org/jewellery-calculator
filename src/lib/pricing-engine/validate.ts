@@ -1,5 +1,6 @@
 import { d } from "./decimal";
 import type { PricingSessionInput, PricingValidationIssue } from "./types";
+import { countMetalCombinations } from "./variations";
 
 export function validatePricingSession(
   session: PricingSessionInput,
@@ -22,6 +23,18 @@ export function validatePricingSession(
     issues.push({
       field: "colors",
       message: "Select at least one color.",
+    });
+  }
+  if (
+    session.metals.length > 0 &&
+    session.purities.length > 0 &&
+    session.colors.length > 0 &&
+    countMetalCombinations(session.metals, session.purities, session.colors) === 0
+  ) {
+    issues.push({
+      field: "combinations",
+      message:
+        "No real metal pairing selected — karat purities need a gold colour, 925/958/999 need Sterling Silver.",
     });
   }
   if (!session.diamondTypes || session.diamondTypes.length === 0) {

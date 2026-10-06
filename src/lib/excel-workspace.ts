@@ -11,18 +11,23 @@ export {
 } from "@/lib/excel";
 
 import { parseGoldCode, variationHintsFromGoldCode } from "@/lib/gold-code";
+import {
+  defaultMetalSelection,
+  migrateVariationSelection,
+  type StoneGradeSourceMap,
+} from "@/lib/variation-selection";
 import type {
   DiamondTypeOption,
-  GoldPurityOption,
   JewelleryExtractedData,
   PricingFormState,
   VariationSelection,
 } from "@/types/jewellery";
 
-/** Pre-select metals/purities/diamond types from a sheet row. */
+/** Pre-select metals/purities/colours/stone types from a sheet row. */
 export function selectionFromExtractedRow(
   data: JewelleryExtractedData,
   prev: VariationSelection,
+  gradeSources?: StoneGradeSourceMap,
 ): VariationSelection {
   const parsed = parseGoldCode(data.goldCode);
   const sheetDia = data.diamondType.toLowerCase();
@@ -36,29 +41,24 @@ export function selectionFromExtractedRow(
           ? prev.diamondTypes
           : ["natural", "lab-grown"];
 
-  if (parsed.ok) {
-    const hints = variationHintsFromGoldCode(parsed);
-    return {
-      metals: hints.metals,
-      purities: Array.from(
-        new Set([...hints.purities, "14K", "18K"]),
-      ) as GoldPurityOption[],
-      colors: ["yellow", "white", "rose"],
-      diamondTypes: preferredDia,
-      diamondColors: prev.diamondColors?.length ? prev.diamondColors : ["G"],
-      diamondClarities: prev.diamondClarities?.length
-        ? prev.diamondClarities
-        : ["VS1"],
-    };
-  }
-
-  return {
-    ...prev,
+  const base: VariationSelection = {
+    ...migrateVariationSelection(prev, gradeSources),
     diamondTypes: preferredDia,
-    diamondColors: prev.diamondColors?.length ? prev.diamondColors : ["G"],
-    diamondClarities: prev.diamondClarities?.length
-      ? prev.diamondClarities
-      : ["VS1"],
+  };
+
+  if (!parsed.ok) return base;
+
+  // Widen the sheet's own code with that metal's usual purities / colours —
+  // never gold colours for a silver row.
+  const hints = variationHintsFromGoldCode(parsed);
+  const metalDefaults = defaultMetalSelection(hints.metals[0]);
+  return {
+    ...base,
+    metals: hints.metals,
+    purities: Array.from(
+      new Set([...hints.purities, ...metalDefaults.purities]),
+    ),
+    colors: Array.from(new Set([...hints.colors, ...metalDefaults.colors])),
   };
 }
 

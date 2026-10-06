@@ -10,6 +10,7 @@ import type {
   PricingStep,
   VariationSelection,
 } from "@/types/jewellery";
+import { migrateVariationSelection } from "@/lib/variation-selection";
 
 export const PRICING_DRAFT_KEY = "atelier.pricing.draft.v1";
 /** Excel rows stored separately so large sheets don't blow the main draft quota. */
@@ -23,7 +24,8 @@ export type StoredExcelRow = {
 };
 
 export interface PricingDraft {
-  version: 1 | 2;
+  /** v3 stores grades per stone type (see migrateVariationSelection). */
+  version: 1 | 2 | 3;
   extracted: JewelleryExtractedData;
   pricing: PricingFormState;
   selection: VariationSelection;
@@ -135,12 +137,16 @@ export function loadPricingDraft(): PricingDraft | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PricingDraft;
     if (
-      (parsed?.version !== 1 && parsed?.version !== 2) ||
+      (parsed?.version !== 1 && parsed?.version !== 2 && parsed?.version !== 3) ||
       !parsed.extracted ||
       !parsed.pricing
     ) {
       return null;
     }
+
+    // Older drafts carry one global colour/clarity pair — fold it into the
+    // per-stone grades so variation generation stays correct on resume.
+    parsed.selection = migrateVariationSelection(parsed.selection);
 
     const external = loadExcelRows();
     if (external?.length) {

@@ -44,11 +44,14 @@ export {
   DIAMOND_COLOR_GRADES,
   MOISSANITE_CLARITY_GRADES,
   MOISSANITE_COLOR_GRADES,
+  clarityGradeScaleForStoneType,
+  colorGradeScaleForStoneType,
   defaultBaseClarityForStoneType,
   defaultBaseColorForStoneType,
   defaultClarityRulesForStoneType,
   defaultColorRulesForStoneType,
   defaultProfileNameForStoneType,
+  isGradeForStoneType,
   stoneTypeLabel,
 } from "./grade-defaults";
 export type {
@@ -58,12 +61,16 @@ export type {
   ChargeInput,
   ChargeLineResult,
   DiamondGradeProfileInput,
+  DiamondGradeProfileMap,
   PricedVariation,
   PricingBreakdown,
   PricingSessionInput,
   PricingValidationIssue,
+  VariationBreakdown,
+  VariationMatrixInput,
   VariationOverrides,
   VariationSpec,
+  VariationSpecInput,
 } from "./types";
 export { validatePricingSession } from "./validate";
 export {
@@ -72,9 +79,14 @@ export {
 } from "./profile-validate";
 export {
   calculateAllVariations,
+  countMetalCombinations,
+  countStoneRows,
   countVariations,
   discountPercentForDiamondType,
   formatDiamondGradeLabel,
   generateVariationSpecs,
   getPriceRange,
+  isValidCombination,
+  resolveStoneGrades,
+  variationBreakdown,
 } from "./variations";
