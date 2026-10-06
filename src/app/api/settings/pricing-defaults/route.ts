@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthError, requireUser } from "@/lib/auth/session";
 import { getPricingDefaults, setPricingDefaults } from "@/lib/services/settings";
+import { syncSettingsRatesToDefaultProfiles } from "@/lib/services/pricing-profiles";
 import type { PricingDefaults } from "@/types/jewellery";
 
 export async function GET() {
@@ -36,6 +37,7 @@ export async function PUT(request: Request) {
     }
     const session = await requireUser();
     const saved = await setPricingDefaults(session.id, body);
+    await syncSettingsRatesToDefaultProfiles(session.id, saved);
     return NextResponse.json(saved);
   } catch (error) {
     if (error instanceof AuthError) {

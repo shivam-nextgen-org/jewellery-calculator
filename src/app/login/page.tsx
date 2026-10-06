@@ -87,11 +87,13 @@ export default function LoginPage() {
         redirect?: string;
       };
       if (!res.ok) throw new Error(data.error || "We couldn't sign you in. Please try again.");
-      // Navigate to the destination. We skip router.refresh() here: refresh()
-      // forces an extra full server re-render of the tree, which noticeably
-      // slowed the post-login landing (especially the dashboard).
+      // Soft navigate, then refresh so the root layout re-reads the session
+      // cookie. Without refresh(), AppShell keeps user=null from the /login
+      // render and the profile menu stays hidden until a full page reload.
       setRedirecting(true);
-      router.replace(data.redirect ?? "/dashboard");
+      const dest = data.redirect ?? "/dashboard";
+      router.replace(dest);
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "We couldn't sign you in. Please try again.");
       setPassword("");

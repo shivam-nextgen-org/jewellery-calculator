@@ -84,6 +84,10 @@ export interface VariationSpec {
   colorLabel: string;
   diamondType: import("@/types/jewellery").DiamondTypeOption;
   diamondTypeLabel: string;
+  /** Diamond colour grade when colour×clarity variations are enabled. */
+  diamondColorGrade: string | null;
+  /** Diamond clarity grade when colour×clarity variations are enabled. */
+  diamondClarityGrade: string | null;
   label: string;
   goldRatePerGram: string;
   goldPurityPercent: string;
@@ -100,6 +104,13 @@ export interface PricingValidationIssue {
   message: string;
 }
 
+/** Per-stone-type colour/clarity % rules used when building variations. */
+export interface DiamondGradeProfileInput {
+  calculationMethod: import("@/types/jewellery").PricingCalculationMethod;
+  colorRules: import("@/types/jewellery").PricingGradeRule[];
+  clarityRules: import("@/types/jewellery").PricingGradeRule[];
+}
+
 export interface PricingSessionInput {
   netWeight: DecimalInput;
   diamondWeight: DecimalInput;
@@ -111,10 +122,28 @@ export interface PricingSessionInput {
   purities: GoldPurityOption[];
   colors: GoldColorOption[];
   diamondTypes: import("@/types/jewellery").DiamondTypeOption[];
+  /** Selected diamond colour grades for the variation matrix (e.g. G, D). */
+  diamondColors?: string[];
+  /** Selected diamond clarity grades for the variation matrix (e.g. VS1, VVS1). */
+  diamondClarities?: string[];
+  /** Grade adjustment rules keyed by stone type. */
+  diamondGradeByType?: Partial<
+    Record<
+      import("@/types/jewellery").DiamondTypeOption,
+      DiamondGradeProfileInput
+    >
+  >;
   diamondRateNatural: DecimalInput;
   diamondRateLabGrown: DecimalInput;
   diamondRateMoissanite: DecimalInput;
-  diamondDiscountPercent: DecimalInput;
+  /**
+   * @deprecated Prefer per-stone discount fields. Used as fallback when a
+   * per-stone value is missing (older drafts / callers).
+   */
+  diamondDiscountPercent?: DecimalInput;
+  diamondDiscountPercentNatural?: DecimalInput;
+  diamondDiscountPercentLabGrown?: DecimalInput;
+  diamondDiscountPercentMoissanite?: DecimalInput;
   makingCharge: DecimalInput;
   makingCalcType: ChargeCalcType;
   otherCharges: ChargeInput[];

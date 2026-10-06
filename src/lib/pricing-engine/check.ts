@@ -42,7 +42,9 @@ const rows = calculateAllVariations({
   diamondRateNatural: 100000,
   diamondRateLabGrown: 45000,
   diamondRateMoissanite: 8000,
-  diamondDiscountPercent: 20,
+  diamondDiscountPercentNatural: 20,
+  diamondDiscountPercentLabGrown: 15,
+  diamondDiscountPercentMoissanite: 10,
   makingCharge: 500,
   makingCalcType: "per-gram",
   otherCharges: [
@@ -75,6 +77,7 @@ const issues = validatePricingSession({
   diamondRateLabGrown: 45000,
   diamondRateMoissanite: 8000,
   diamondDiscountPercent: 120,
+  diamondDiscountPercentNatural: 120,
   makingCharge: 500,
   makingCalcType: "per-gram",
   otherCharges: [],

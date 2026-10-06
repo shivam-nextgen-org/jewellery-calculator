@@ -19,6 +19,8 @@ function stubVariation(
     colorLabel: "Yellow Gold",
     diamondType: "natural",
     diamondTypeLabel: "Natural",
+    diamondColorGrade: null,
+    diamondClarityGrade: null,
     goldRatePerGram: "11098.5",
     goldPurityPercent: "75",
     diamondRate: "10000",
@@ -59,7 +61,7 @@ function stubVariation(
 describe("buildVariationExportRows", () => {
   it("maps table columns with numeric amounts", () => {
     const rows = buildVariationExportRows(
-      [stubVariation({ id: "1", label: "18K Yellow · Natural" })],
+      [stubVariation({ id: "1", label: "18K Yellow · Natural · G-VS1" })],
       {
         designNo: "PN-0088",
         category: "Pendant",
@@ -71,23 +73,23 @@ describe("buildVariationExportRows", () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      Variation: "18K Yellow · Natural",
+      Variation: "18K Yellow · Natural · G-VS1",
       "Metal / Purity": "Gold · 18K",
       Color: "Yellow",
       Diamond: "Natural",
-      "Net Wt (g)": 4.2,
-      "Dia Wt (CT)": 0.5,
-      Currency: "INR",
-      "Manual Override": "No",
+      "Dia Colour": "—",
+      Clarity: "—",
+      "Net Wt": 4.2,
+      "Dia Wt": 0.5,
+      Final: 59443.7,
     });
-    expect(rows[0]!["Final (INR)"]).toBe(59443.7);
   });
 });
 
 describe("buildVariationWorkbookBuffer", () => {
-  it("produces a readable xlsx with Summary + Variation prices", () => {
+  it("produces a readable xlsx with Variation prices sheet", () => {
     const buffer = buildVariationWorkbookBuffer(
-      [stubVariation({ id: "1", label: "18K Yellow · Natural" })],
+      [stubVariation({ id: "1", label: "18K Yellow · Natural · G-VS1" })],
       {
         designNo: "PN-0088",
         category: "Pendant",
@@ -99,7 +101,7 @@ describe("buildVariationWorkbookBuffer", () => {
       },
     );
     const wb = XLSX.read(buffer, { type: "array" });
-    expect(wb.SheetNames).toEqual(["Summary", "Variation prices"]);
+    expect(wb.SheetNames).toEqual(["Variation prices"]);
     const prices = XLSX.utils.sheet_to_json(wb.Sheets["Variation prices"]!);
     expect(prices).toHaveLength(1);
   });

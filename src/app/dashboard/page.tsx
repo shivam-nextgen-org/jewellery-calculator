@@ -215,7 +215,9 @@ async function RateBoard({ userId }: { userId: string | null }) {
             ))}
           </ul>
           <p className="border-t border-border/70 px-6 py-3 text-xs text-muted-foreground">
-            Default diamond discount: {defaults.defaultDiamondDiscount}%
+            Discount — Natural {defaults.defaultDiamondDiscountNatural}% ·
+            Lab-grown {defaults.defaultDiamondDiscountLabGrown}% · Moissanite{" "}
+            {defaults.defaultDiamondDiscountMoissanite}%
           </p>
         </article>
       </div>

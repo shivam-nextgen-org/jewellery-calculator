@@ -1,5 +1,9 @@
-import type { VariationOverrides } from "@/lib/pricing-engine";
 import type {
+  DiamondGradeProfileInput,
+  VariationOverrides,
+} from "@/lib/pricing-engine";
+import type {
+  DiamondTypeOption,
   JewelleryExtractedData,
   GoldPurityOption,
   PricingFormState,
@@ -24,6 +28,10 @@ export interface PricingDraft {
   pricing: PricingFormState;
   selection: VariationSelection;
   purityPercentages: Record<GoldPurityOption, number>;
+  /** Snapshot of colour/clarity % rules used when this draft was calculated. */
+  diamondGradeByType?: Partial<
+    Record<DiamondTypeOption, DiamondGradeProfileInput>
+  >;
   overridesByVariationId: Record<string, VariationOverrides>;
   /** @deprecated Prefer excelFileName; kept for resume compatibility. */
   imageName: string | null;

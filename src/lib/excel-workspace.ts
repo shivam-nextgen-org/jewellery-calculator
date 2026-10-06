@@ -45,12 +45,20 @@ export function selectionFromExtractedRow(
       ) as GoldPurityOption[],
       colors: ["yellow", "white", "rose"],
       diamondTypes: preferredDia,
+      diamondColors: prev.diamondColors?.length ? prev.diamondColors : ["G"],
+      diamondClarities: prev.diamondClarities?.length
+        ? prev.diamondClarities
+        : ["VS1"],
     };
   }
 
   return {
     ...prev,
     diamondTypes: preferredDia,
+    diamondColors: prev.diamondColors?.length ? prev.diamondColors : ["G"],
+    diamondClarities: prev.diamondClarities?.length
+      ? prev.diamondClarities
+      : ["VS1"],
   };
 }
 

@@ -57,6 +57,38 @@ export function parsePricingDefaults(value: unknown): PricingDefaults {
     defaultDiamondRateNatural: natural,
     defaultDiamondRateLabGrown: labGrown,
     defaultDiamondRateMoissanite: moissanite,
+    defaultDiamondColorGrade:
+      (typeof raw.defaultDiamondColorGrade === "string" &&
+        raw.defaultDiamondColorGrade.trim()) ||
+      MOCK_PRICING_DEFAULTS.defaultDiamondColorGrade,
+    defaultDiamondClarityGrade:
+      (typeof raw.defaultDiamondClarityGrade === "string" &&
+        raw.defaultDiamondClarityGrade.trim()) ||
+      MOCK_PRICING_DEFAULTS.defaultDiamondClarityGrade,
+    ...(() => {
+      const legacy =
+        typeof raw.defaultDiamondDiscount === "number"
+          ? raw.defaultDiamondDiscount
+          : MOCK_PRICING_DEFAULTS.defaultDiamondDiscount;
+      const natural =
+        typeof raw.defaultDiamondDiscountNatural === "number"
+          ? raw.defaultDiamondDiscountNatural
+          : legacy;
+      const labGrown =
+        typeof raw.defaultDiamondDiscountLabGrown === "number"
+          ? raw.defaultDiamondDiscountLabGrown
+          : legacy;
+      const moissanite =
+        typeof raw.defaultDiamondDiscountMoissanite === "number"
+          ? raw.defaultDiamondDiscountMoissanite
+          : legacy;
+      return {
+        defaultDiamondDiscount: natural,
+        defaultDiamondDiscountNatural: natural,
+        defaultDiamondDiscountLabGrown: labGrown,
+        defaultDiamondDiscountMoissanite: moissanite,
+      };
+    })(),
     goldRateLastUpdatedAt:
       raw.goldRateLastUpdatedAt === undefined
         ? null

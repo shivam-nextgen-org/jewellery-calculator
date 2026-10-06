@@ -102,13 +102,31 @@ export function PricingResultsView() {
       diamondTypes: draft.selection.diamondTypes?.length
         ? draft.selection.diamondTypes
         : ["natural", "lab-grown"],
+      diamondColors: draft.selection.diamondColors?.length
+        ? draft.selection.diamondColors
+        : undefined,
+      diamondClarities: draft.selection.diamondClarities?.length
+        ? draft.selection.diamondClarities
+        : undefined,
+      diamondGradeByType: draft.diamondGradeByType,
       diamondRateNatural:
         draft.pricing.diamondRateNatural ??
         (draft.pricing as { diamondRate?: number }).diamondRate ??
         100000,
       diamondRateLabGrown: draft.pricing.diamondRateLabGrown ?? 45000,
       diamondRateMoissanite: draft.pricing.diamondRateMoissanite ?? 8000,
-      diamondDiscountPercent: draft.pricing.diamondDiscount,
+      diamondDiscountPercentNatural:
+        draft.pricing.diamondDiscountNatural ??
+        draft.pricing.diamondDiscount ??
+        0,
+      diamondDiscountPercentLabGrown:
+        draft.pricing.diamondDiscountLabGrown ??
+        draft.pricing.diamondDiscount ??
+        0,
+      diamondDiscountPercentMoissanite:
+        draft.pricing.diamondDiscountMoissanite ??
+        draft.pricing.diamondDiscount ??
+        0,
       makingCharge: draft.pricing.makingCharge,
       makingCalcType: draft.pricing.makingCalcType,
       otherCharges: draft.pricing.otherCharges.map((c) => ({
@@ -139,6 +157,8 @@ export function PricingResultsView() {
       draft.selection.diamondTypes?.length
         ? draft.selection.diamondTypes
         : ["natural", "lab-grown"],
+      draft.selection.diamondColors,
+      draft.selection.diamondClarities,
     )
     : 0;
 

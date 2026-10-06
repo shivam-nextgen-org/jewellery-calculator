@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   Clock,
@@ -12,19 +13,39 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { NumberInput } from "@/components/ui/number-input";
+import {
+  applyDraftRatesToDefaultsForm,
+  DiamondStoneSettings,
+  draftsBaseline,
+  loadDefaultStoneDrafts,
+  stoneDraftToPayload,
+  type StoneProfileDraft,
+  STONE_TYPES,
+} from "@/components/settings/diamond-stone-settings";
 import { formatINR } from "@/lib/format";
 import { MOCK_PRICING_DEFAULTS } from "@/lib/mock/data";
 import { cn } from "@/lib/utils";
 import type {
   ChargeCalcType,
+  DiamondTypeOption,
   GoldPurityOption,
   PricingDefaults,
 } from "@/types/jewellery";
 
 const GOLD_PURITIES: GoldPurityOption[] = ["24K", "22K", "18K", "14K", "10K", "9K"];
 const SILVER_PURITIES: GoldPurityOption[] = ["999", "958", "925"];
+
+const DISCOUNT_KEY_BY_STONE: Record<
+  DiamondTypeOption,
+  | "defaultDiamondDiscountNatural"
+  | "defaultDiamondDiscountLabGrown"
+  | "defaultDiamondDiscountMoissanite"
+> = {
+  natural: "defaultDiamondDiscountNatural",
+  "lab-grown": "defaultDiamondDiscountLabGrown",
+  moissanite: "defaultDiamondDiscountMoissanite",
+};
 
 const CALC_TYPES: { value: ChargeCalcType; label: string }[] = [
   { value: "per-gram", label: "Per gram" },
@@ -304,17 +325,28 @@ export function PricingDefaultsForm({
 }: {
   initialDefaults: PricingDefaults;
 }) {
+  const router = useRouter();
   const [form, setForm] = useState<PricingDefaults>(initialDefaults);
   const [baseline, setBaseline] = useState(() => JSON.stringify(initialDefaults));
+  const [stoneDrafts, setStoneDrafts] = useState<
+    Partial<Record<DiamondTypeOption, StoneProfileDraft>>
+  >({});
+  const [stoneBaseline, setStoneBaseline] = useState("");
+  const [stonesLoading, setStonesLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fxLastUpdated, setFxLastUpdated] = useState<string | null>(null);
-  const [discountEnabled, setDiscountEnabled] = useState(
-    () => (initialDefaults.defaultDiamondDiscount ?? 0) > 0,
-  );
 
-  const dirty = useMemo(() => JSON.stringify(form) !== baseline, [form, baseline]);
+  const formDirty = useMemo(
+    () => JSON.stringify(form) !== baseline,
+    [form, baseline],
+  );
+  const stonesDirty = useMemo(
+    () => draftsBaseline(stoneDrafts) !== stoneBaseline,
+    [stoneDrafts, stoneBaseline],
+  );
+  const dirty = formDirty || stonesDirty;
 
   const update = useCallback(<K extends keyof PricingDefaults>(key: K, value: PricingDefaults[K]) => {
     setForm((d) => ({ ...d, [key]: value }));
@@ -324,6 +356,38 @@ export function PricingDefaultsForm({
   const setPurity = useCallback((purity: GoldPurityOption, value: number) => {
     setForm((d) => ({ ...d, purityPercentages: { ...d.purityPercentages, [purity]: value } }));
     setJustSaved(false);
+  }, []);
+
+  const updateStoneDraft = useCallback(
+    (stoneType: DiamondTypeOption, draft: StoneProfileDraft) => {
+      setStoneDrafts((prev) => {
+        const next = { ...prev, [stoneType]: draft };
+        setForm((formPrev) => applyDraftRatesToDefaultsForm(formPrev, next));
+        return next;
+      });
+      setJustSaved(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const drafts = await loadDefaultStoneDrafts();
+        if (cancelled) return;
+        setStoneDrafts(drafts);
+        setStoneBaseline(draftsBaseline(drafts));
+        setForm((prev) => applyDraftRatesToDefaultsForm(prev, drafts));
+      } catch {
+        // Profiles may not exist yet — form rates still work.
+      } finally {
+        if (!cancelled) setStonesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -348,30 +412,88 @@ export function PricingDefaultsForm({
     setSaving(true);
     setError(null);
     try {
+      const formPayload = applyDraftRatesToDefaultsForm(form, stoneDrafts);
       const res = await fetch("/api/settings/pricing-defaults", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(formPayload),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Couldn't save your settings. Please try again.");
       }
       const savedBody = (await res.json()) as PricingDefaults;
-      setForm(savedBody);
-      setBaseline(JSON.stringify(savedBody));
+
+      // Persist per-stone color/clarity % rules and calculation method.
+      for (const stoneType of STONE_TYPES) {
+        const draft = stoneDrafts[stoneType];
+        if (!draft?.id) continue;
+        const profileRes = await fetch(`/api/pricing-profiles/${draft.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(stoneDraftToPayload(draft)),
+        });
+        if (!profileRes.ok) {
+          const body = (await profileRes.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(
+            body?.error ??
+              `Couldn't save ${stoneType} diamond color/clarity rules.`,
+          );
+        }
+        const savedProfile = (await profileRes.json()) as {
+          id: string;
+          updatedAt: string;
+          basePricePerCt: number;
+          baseColorGrade: string;
+          baseClarityGrade: string;
+          calculationMethod: StoneProfileDraft["calculationMethod"];
+          colorRules: StoneProfileDraft["colorRules"];
+          clarityRules: StoneProfileDraft["clarityRules"];
+          name: string;
+          stoneType: DiamondTypeOption;
+        };
+        setStoneDrafts((prev) => ({
+          ...prev,
+          [stoneType]: {
+            id: savedProfile.id,
+            updatedAt: savedProfile.updatedAt,
+            name: savedProfile.name,
+            stoneType: savedProfile.stoneType,
+            basePricePerCt: savedProfile.basePricePerCt,
+            baseColorGrade: savedProfile.baseColorGrade,
+            baseClarityGrade: savedProfile.baseClarityGrade,
+            calculationMethod: savedProfile.calculationMethod,
+            colorRules: savedProfile.colorRules,
+            clarityRules: savedProfile.clarityRules,
+          },
+        }));
+      }
+
+      const refreshedDrafts = await loadDefaultStoneDrafts();
+      setStoneDrafts(refreshedDrafts);
+      setStoneBaseline(draftsBaseline(refreshedDrafts));
+      const nextForm = applyDraftRatesToDefaultsForm(savedBody, refreshedDrafts);
+      setForm(nextForm);
+      setBaseline(JSON.stringify(nextForm));
       setJustSaved(true);
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save your settings.");
     } finally {
       setSaving(false);
     }
-  }, [form, saving]);
+  }, [form, saving, router, stoneDrafts]);
 
   function discard() {
     const previous = JSON.parse(baseline) as PricingDefaults;
     setForm(previous);
-    setDiscountEnabled((previous.defaultDiamondDiscount ?? 0) > 0);
+    if (stoneBaseline) {
+      setStoneDrafts(JSON.parse(stoneBaseline) as Partial<
+        Record<DiamondTypeOption, StoneProfileDraft>
+      >);
+    }
     setError(null);
   }
 
@@ -384,7 +506,6 @@ export function PricingDefaultsForm({
       goldRateLastUpdatedAt: d.goldRateLastUpdatedAt,
       silverRateLastUpdatedAt: d.silverRateLastUpdatedAt,
     }));
-    setDiscountEnabled((MOCK_PRICING_DEFAULTS.defaultDiamondDiscount ?? 0) > 0);
     setJustSaved(false);
   }
 
@@ -491,72 +612,36 @@ export function PricingDefaultsForm({
           </div>
         </Section>
 
-        {/* Diamonds */}
+        {/* Diamonds — same mental model as gold/silver: base + % adjustments */}
         <Section
           tone="diamond"
           icon={Gem}
           title="Diamonds & stones"
-          description="Rate per carat for each stone type."
-          className="lg:col-span-7"
+          description="Base ₹/ct for each stone type, then +/- % by color and clarity — like karat purity for gold."
+          className="lg:col-span-12"
         >
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <AffixField
-                id="rate-natural"
-                label="Natural"
-                prefix="₹"
-                suffix="/ ct"
-                value={form.defaultDiamondRateNatural}
-                onChange={(n) =>
-                  setForm((d) => ({ ...d, defaultDiamondRateNatural: n, defaultDiamondRate: n }))
-                }
-              />
-              <AffixField
-                id="rate-lab"
-                label="Lab-grown"
-                prefix="₹"
-                suffix="/ ct"
-                value={form.defaultDiamondRateLabGrown}
-                onChange={(n) => update("defaultDiamondRateLabGrown", n)}
-              />
-              <AffixField
-                id="rate-moissanite"
-                label="Moissanite"
-                prefix="₹"
-                suffix="/ ct"
-                value={form.defaultDiamondRateMoissanite}
-                onChange={(n) => update("defaultDiamondRateMoissanite", n)}
-              />
-            </div>
-            <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-surface-elevated p-3 sm:flex-row sm:items-center sm:justify-between">
-              <label className="flex cursor-pointer items-start gap-3">
-                <Checkbox
-                  className="mt-0.5"
-                  checked={discountEnabled}
-                  onCheckedChange={(value) => {
-                    const on = value === true;
-                    setDiscountEnabled(on);
-                    if (!on) update("defaultDiamondDiscount", 0);
-                  }}
-                />
-                <span>
-                  <span className="block text-sm font-medium text-charcoal">Apply a default diamond discount</span>
-                  <span className="block text-xs text-muted-foreground">Taken off the diamond value on every variation.</span>
-                </span>
-              </label>
-              <div className="relative w-full sm:w-32">
-                <NumberInput
-                  value={form.defaultDiamondDiscount}
-                  disabled={!discountEnabled}
-                  onValueChange={(n) => update("defaultDiamondDiscount", n)}
-                  aria-label="Default diamond discount percent"
-                  className="h-9 pr-8 tabular-nums"
-                />
-                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
-                  %
-                </span>
-              </div>
-            </div>
+            <DiamondStoneSettings
+              drafts={stoneDrafts}
+              onChange={updateStoneDraft}
+              loading={stonesLoading}
+              discounts={{
+                natural: form.defaultDiamondDiscountNatural,
+                "lab-grown": form.defaultDiamondDiscountLabGrown,
+                moissanite: form.defaultDiamondDiscountMoissanite,
+              }}
+              onDiscountChange={(stoneType, percent) => {
+                const key = DISCOUNT_KEY_BY_STONE[stoneType];
+                setForm((d) => ({
+                  ...d,
+                  [key]: percent,
+                  ...(stoneType === "natural"
+                    ? { defaultDiamondDiscount: percent }
+                    : {}),
+                }));
+                setJustSaved(false);
+              }}
+            />
           </div>
         </Section>
 
@@ -566,7 +651,7 @@ export function PricingDefaultsForm({
           icon={Hammer}
           title="Charges"
           description="Added to every variation's price."
-          className="lg:col-span-5"
+          className="lg:col-span-12 lg:max-w-xl"
         >
           <div className="space-y-4">
             <ChargeField

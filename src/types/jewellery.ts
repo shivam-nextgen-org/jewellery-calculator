@@ -25,6 +25,51 @@ export type DiamondShapeOption =
 
 export type ChargeCalcType = "per-gram" | "fixed" | "percentage";
 
+/** How diamond color/clarity % adjustments combine against base ₹/ct. */
+export type PricingCalculationMethod = "additive" | "sequential";
+
+export type PricingProfileStatus = "active" | "archived";
+
+export interface PricingGradeRule {
+  grade: string;
+  /** Signed percentage (20 = +20%, -10 = −10%). */
+  adjustmentPercent: number;
+}
+
+/** Per-user configurable diamond pricing rule set. */
+export interface PricingProfile {
+  id: string;
+  userId: string;
+  name: string;
+  stoneType: DiamondTypeOption;
+  status: PricingProfileStatus;
+  basePricePerCt: number;
+  baseCurrency: "INR";
+  baseColorGrade: string;
+  baseClarityGrade: string;
+  calculationMethod: PricingCalculationMethod;
+  colorRules: PricingGradeRule[];
+  clarityRules: PricingGradeRule[];
+  isDefault: boolean;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PricingProfileInput {
+  name: string;
+  stoneType: DiamondTypeOption;
+  basePricePerCt: number;
+  baseColorGrade: string;
+  baseClarityGrade: string;
+  calculationMethod: PricingCalculationMethod;
+  colorRules: PricingGradeRule[];
+  clarityRules: PricingGradeRule[];
+  isDefault?: boolean;
+  /** Optimistic concurrency — ISO string from last load. */
+  updatedAt?: string;
+}
+
 export interface JewelleryExtractedData {
   designNo: string;
   category: string;
@@ -69,7 +114,18 @@ export interface PricingDefaults {
   defaultDiamondRateLabGrown: number;
   /** Moissanite rate (₹ / CT) — same pattern as natural / lab-grown. */
   defaultDiamondRateMoissanite: number;
+  /** Default diamond color grade for new pricing sessions (e.g. G). */
+  defaultDiamondColorGrade: string;
+  /** Default diamond clarity grade for new pricing sessions (e.g. VS1). */
+  defaultDiamondClarityGrade: string;
+  /**
+   * @deprecated use defaultDiamondDiscountNatural / LabGrown / Moissanite.
+   * Kept so older saved settings still load; parsePricingDefaults migrates it.
+   */
   defaultDiamondDiscount: number;
+  defaultDiamondDiscountNatural: number;
+  defaultDiamondDiscountLabGrown: number;
+  defaultDiamondDiscountMoissanite: number;
   defaultMakingCharge: number;
   defaultMakingCalcType: ChargeCalcType;
   defaultOtherCharge: number;
@@ -85,6 +141,10 @@ export interface VariationSelection {
   purities: GoldPurityOption[];
   colors: GoldColorOption[];
   diamondTypes: DiamondTypeOption[];
+  /** Diamond colour grades included in the price matrix (e.g. G, D). */
+  diamondColors: string[];
+  /** Diamond clarity grades included in the price matrix (e.g. VS1, VVS1). */
+  diamondClarities: string[];
 }
 
 export interface PricingFormState {
@@ -94,12 +154,26 @@ export interface PricingFormState {
   diamondRateNatural: number;
   diamondRateLabGrown: number;
   diamondRateMoissanite: number;
+  /**
+   * @deprecated use diamondDiscountNatural / LabGrown / Moissanite.
+   * Kept for older pricing drafts; prefer the per-stone fields.
+   */
   diamondDiscount: number;
+  diamondDiscountNatural: number;
+  diamondDiscountLabGrown: number;
+  diamondDiscountMoissanite: number;
   makingCharge: number;
   makingCalcType: ChargeCalcType;
   otherCharges: OtherCharge[];
+  /** Diamond color grade for profile-based ₹/ct (session-level, not a variation axis). */
+  diamondColorGrade?: string;
+  /** Diamond clarity grade for profile-based ₹/ct. */
+  diamondClarityGrade?: string;
+  /** Profile ids used to resolve rates per stone type. */
+  diamondProfileIdNatural?: string | null;
+  diamondProfileIdLabGrown?: string | null;
+  diamondProfileIdMoissanite?: string | null;
 }
-
 export interface DashboardStats {
   totalDesigns: number;
   todaysImports: number;

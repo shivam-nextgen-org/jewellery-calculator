@@ -1,7 +1,15 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
-import { ChevronDown, Download, Pencil, Search, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Pencil,
+  Search,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +23,9 @@ import type { SupportedCurrency } from "@/lib/fx/currencies";
 import { formatWeight } from "@/lib/format";
 import type { PricedVariation, VariationOverrides } from "@/lib/pricing-engine";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200] as const;
+const TABLE_COL_SPAN = 15;
 
 type MoneyFmt = {
   currency: SupportedCurrency;
@@ -241,6 +252,8 @@ export function VariationResultsTable({
 }) {
   const fmt: MoneyFmt = { currency, rates };
   const [search, setSearch] = useState("");
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(10);
+  const [page, setPage] = useState(1);
   // Start collapsed — the breakdown opens only when the user taps a row.
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -249,6 +262,21 @@ export function VariationResultsTable({
     () => variations.filter((row) => variationMatchesSearch(row, search)),
     [variations, search],
   );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, pageSize]);
+
+  const pageRows = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, safePage, pageSize]);
+
+  const rangeStart = filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, filtered.length);
 
   if (variations.length === 0) {
     return (
@@ -284,7 +312,8 @@ export function VariationResultsTable({
   const hasSearch = search.trim().length > 0;
 
   function handleExport() {
-    downloadVariationPricesExcel(filtered, {
+    // Always export every calculated variation — not just the current page.
+    downloadVariationPricesExcel(variations, {
       designNo,
       category,
       netWeight,
@@ -317,23 +346,31 @@ export function VariationResultsTable({
             </button>
           ) : null}
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={handleExport}
-          disabled={variations.length === 0}
-        >
-          <Download className="h-3.5 w-3.5" />
-          Export
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="hidden text-xs text-muted-foreground lg:block">
+            Expand row for breakdown · pencil for overrides
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={variations.length === 0}
+            title={`Export all ${variations.length} variations`}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export all
+          </Button>
+        </div>
       </div>
-      {hasSearch ? (
-        <p className="text-xs text-muted-foreground">
-          Showing {filtered.length} of {variations.length} variation
-          {variations.length === 1 ? "" : "s"}
-        </p>
-      ) : null}
+
+      <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
+        {filtered.length === 0
+          ? `No matches · ${variations.length} total`
+          : hasSearch
+            ? `Showing ${rangeStart}–${rangeEnd} of ${filtered.length} matches · ${variations.length} total`
+            : `Showing ${rangeStart}–${rangeEnd} of ${variations.length} variations`}
+      </p>
 
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
       <div className="overflow-x-auto">
@@ -349,6 +386,8 @@ export function VariationResultsTable({
               </th>
               <th className={cn("px-3 py-3 font-medium", grid)}>Color</th>
               <th className={cn("px-3 py-3 font-medium", grid)}>Diamond</th>
+              <th className={cn("px-3 py-3 font-medium", grid)}>Dia Colour</th>
+              <th className={cn("px-3 py-3 font-medium", grid)}>Clarity</th>
               <th className={cn("px-3 py-3 font-medium text-right", grid)}>Net Wt</th>
               <th className={cn("px-3 py-3 font-medium text-right", grid)}>Metal Rate</th>
               <th className={cn("px-3 py-3 font-medium text-right", grid)}>Metal ₹</th>
@@ -368,17 +407,17 @@ export function VariationResultsTable({
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {pageRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={13}
+                  colSpan={TABLE_COL_SPAN}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   No variations match your search.
                 </td>
               </tr>
             ) : null}
-            {filtered.map((row) => {
+            {pageRows.map((row) => {
               const open = expandedId === row.id;
               const editing = editingId === row.id;
               return (
@@ -443,6 +482,12 @@ export function VariationResultsTable({
                     </td>
                     <td className={cn("whitespace-nowrap px-3 py-3 text-muted-foreground group-hover:bg-ivory-deep/25", grid)}>
                       {row.diamondTypeLabel}
+                    </td>
+                    <td className={cn("whitespace-nowrap px-3 py-3 tabular-nums group-hover:bg-ivory-deep/25", grid)}>
+                      {row.diamondColorGrade ?? "—"}
+                    </td>
+                    <td className={cn("whitespace-nowrap px-3 py-3 tabular-nums group-hover:bg-ivory-deep/25", grid)}>
+                      {row.diamondClarityGrade ?? "—"}
                     </td>
                     <td className={cn("whitespace-nowrap px-3 py-3 text-right tabular-nums text-muted-foreground group-hover:bg-ivory-deep/25", grid)}>
                       {formatWeight(netWeight)}
@@ -518,7 +563,7 @@ export function VariationResultsTable({
                   </tr>
                   {(open || editing) && (
                     <tr className="border-b border-border/70">
-                      <td colSpan={13} className="p-0">
+                      <td colSpan={TABLE_COL_SPAN} className="p-0">
                         {open && (
                           <BreakdownBlock
                             variation={row}
@@ -550,6 +595,57 @@ export function VariationResultsTable({
           </tbody>
         </table>
       </div>
+
+      {filtered.length > 0 ? (
+        <div className="flex flex-col gap-3 border-t border-border/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Rows per page
+            <select
+              className="app-select h-8 rounded-md border border-input bg-surface pl-2 text-xs text-charcoal"
+              value={pageSize}
+              onChange={(e) =>
+                setPageSize(
+                  Number(e.target.value) as (typeof PAGE_SIZE_OPTIONS)[number],
+                )
+              }
+              aria-label="Rows per page"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-xs tabular-nums text-muted-foreground">
+              Page {safePage} of {totalPages}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-2"
+              disabled={safePage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-2"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
     </div>
   );

@@ -121,7 +121,7 @@ export async function deleteAppUser(id: string) {
   // Some records are linked indirectly (variations -> products,
   // calculation items -> calculations, extracted data -> ocr imports),
   // so gather those parent ids first.
-  const [calcs, products, imports] = await Promise.all([
+  const [calcs, products, imports, profiles] = await Promise.all([
     db
       .collection("PricingCalculation")
       .find({ userId }, { projection: { _id: 1 } })
@@ -134,10 +134,15 @@ export async function deleteAppUser(id: string) {
       .collection("OcrImport")
       .find({ userId }, { projection: { _id: 1 } })
       .toArray(),
+    db
+      .collection("PricingProfile")
+      .find({ userId }, { projection: { _id: 1 } })
+      .toArray(),
   ]);
   const calcIds = calcs.map((c) => c._id);
   const productIds = products.map((p) => p._id);
   const importIds = imports.map((i) => i._id);
+  const profileIds = profiles.map((p) => p._id);
 
   if (calcIds.length > 0) {
     await db
@@ -154,6 +159,11 @@ export async function deleteAppUser(id: string) {
       .collection("OcrExtractedData")
       .deleteMany({ importId: { $in: importIds } });
   }
+  if (profileIds.length > 0) {
+    await db
+      .collection("PricingProfileRevision")
+      .deleteMany({ profileId: { $in: profileIds } });
+  }
 
   await Promise.all([
     db.collection("PricingCalculation").deleteMany({ userId }),
@@ -161,6 +171,7 @@ export async function deleteAppUser(id: string) {
     db.collection("OcrImport").deleteMany({ userId }),
     db.collection("AppSetting").deleteMany({ userId }),
     db.collection("ApiKey").deleteMany({ userId }),
+    db.collection("PricingProfile").deleteMany({ userId }),
     // Devices, sessions and slot/enrollment state. Security events are kept
     // for their retention period (audit trail).
     deleteSecurityRecordsForUser(db, userId),

@@ -103,18 +103,43 @@ export function validatePricingSession(
   }
 
   try {
-    const discount = d(session.diamondDiscountPercent);
-    if (discount.lt(0)) {
-      issues.push({
-        field: "diamondDiscount",
-        message: "Discount cannot be negative.",
-      });
-    }
-    if (discount.gt(100)) {
-      issues.push({
-        field: "diamondDiscount",
-        message: "Discount cannot exceed 100%.",
-      });
+    const discounts: Array<{ field: string; value: unknown }> = [
+      {
+        field: "diamondDiscountNatural",
+        value:
+          session.diamondDiscountPercentNatural ??
+          session.diamondDiscountPercent ??
+          0,
+      },
+      {
+        field: "diamondDiscountLabGrown",
+        value:
+          session.diamondDiscountPercentLabGrown ??
+          session.diamondDiscountPercent ??
+          0,
+      },
+      {
+        field: "diamondDiscountMoissanite",
+        value:
+          session.diamondDiscountPercentMoissanite ??
+          session.diamondDiscountPercent ??
+          0,
+      },
+    ];
+    for (const { field, value } of discounts) {
+      const discount = d(value as string | number);
+      if (discount.lt(0)) {
+        issues.push({
+          field,
+          message: "Discount cannot be negative.",
+        });
+      }
+      if (discount.gt(100)) {
+        issues.push({
+          field,
+          message: "Discount cannot exceed 100%.",
+        });
+      }
     }
   } catch {
     issues.push({

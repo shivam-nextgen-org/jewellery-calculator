@@ -60,6 +60,7 @@ import {
 } from "@/lib/pricing-engine";
 import type {
   ChargeCalcType,
+  DiamondTypeOption,
   GoldColorOption,
   GoldMetalOption,
   GoldPurityOption,
@@ -67,12 +68,50 @@ import type {
   OtherCharge,
   PricingDefaults,
   PricingFormState,
+  PricingProfile,
   PricingStep,
   VariationSelection,
 } from "@/types/jewellery";
 import { cn } from "@/lib/utils";
 
-function pricingFromDefaults(defaults: PricingDefaults): PricingFormState {
+function hasAnyPricingDiamondDiscount(
+  pricing: Pick<
+    PricingFormState,
+    | "diamondDiscount"
+    | "diamondDiscountNatural"
+    | "diamondDiscountLabGrown"
+    | "diamondDiscountMoissanite"
+  >,
+): boolean {
+  const legacy = pricing.diamondDiscount ?? 0;
+  return (
+    (pricing.diamondDiscountNatural ?? legacy) > 0 ||
+    (pricing.diamondDiscountLabGrown ?? legacy) > 0 ||
+    (pricing.diamondDiscountMoissanite ?? legacy) > 0
+  );
+}
+
+function normalizePricingDiscounts(pricing: PricingFormState): PricingFormState {
+  const legacy = pricing.diamondDiscount ?? 0;
+  const natural = pricing.diamondDiscountNatural ?? legacy;
+  const labGrown = pricing.diamondDiscountLabGrown ?? legacy;
+  const moissanite = pricing.diamondDiscountMoissanite ?? legacy;
+  return {
+    ...pricing,
+    diamondDiscount: natural,
+    diamondDiscountNatural: natural,
+    diamondDiscountLabGrown: labGrown,
+    diamondDiscountMoissanite: moissanite,
+  };
+}
+
+function pricingFromDefaults(
+  defaults: PricingDefaults,
+  profiles?: Partial<Record<DiamondTypeOption, PricingProfile>>,
+): PricingFormState {
+  const natural = profiles?.natural;
+  const lab = profiles?.["lab-grown"];
+  const moissanite = profiles?.moissanite;
   return {
     gold24kRate: defaults.gold24kRate,
     silverRate: defaults.silverRate ?? 0,
@@ -80,7 +119,10 @@ function pricingFromDefaults(defaults: PricingDefaults): PricingFormState {
     diamondRateNatural: defaults.defaultDiamondRateNatural,
     diamondRateLabGrown: defaults.defaultDiamondRateLabGrown,
     diamondRateMoissanite: defaults.defaultDiamondRateMoissanite,
-    diamondDiscount: defaults.defaultDiamondDiscount,
+    diamondDiscount: defaults.defaultDiamondDiscountNatural,
+    diamondDiscountNatural: defaults.defaultDiamondDiscountNatural,
+    diamondDiscountLabGrown: defaults.defaultDiamondDiscountLabGrown,
+    diamondDiscountMoissanite: defaults.defaultDiamondDiscountMoissanite,
     makingCharge: defaults.defaultMakingCharge,
     makingCalcType: defaults.defaultMakingCalcType,
     otherCharges: [
@@ -91,6 +133,21 @@ function pricingFromDefaults(defaults: PricingDefaults): PricingFormState {
         calcType: defaults.defaultOtherCalcType,
       },
     ],
+    diamondColorGrade:
+      defaults.defaultDiamondColorGrade ||
+      natural?.baseColorGrade ||
+      lab?.baseColorGrade ||
+      moissanite?.baseColorGrade ||
+      "G",
+    diamondClarityGrade:
+      defaults.defaultDiamondClarityGrade ||
+      natural?.baseClarityGrade ||
+      lab?.baseClarityGrade ||
+      moissanite?.baseClarityGrade ||
+      "VS1",
+    diamondProfileIdNatural: natural?.id ?? null,
+    diamondProfileIdLabGrown: lab?.id ?? null,
+    diamondProfileIdMoissanite: moissanite?.id ?? null,
   };
 }
 
@@ -429,8 +486,10 @@ function writeStepToUrl(next: PricingStep, mode: "push" | "replace") {
 
 export function PricingWorkspace({
   initialDefaults,
+  initialProfiles,
 }: {
   initialDefaults?: PricingDefaults;
+  initialProfiles?: Partial<Record<DiamondTypeOption, PricingProfile>>;
 }) {
   const router = useRouter();
   const [step, setStepState] = useState<PricingStep>("import");
@@ -447,13 +506,21 @@ export function PricingWorkspace({
   const [defaults, setDefaults] = useState<PricingDefaults>(
     initialDefaults ?? MOCK_PRICING_DEFAULTS,
   );
+  const [diamondProfiles, setDiamondProfiles] = useState<
+    Partial<Record<DiamondTypeOption, PricingProfile>>
+  >(initialProfiles ?? {});
   const [pricing, setPricing] = useState<PricingFormState>(() =>
-    pricingFromDefaults(initialDefaults ?? MOCK_PRICING_DEFAULTS),
+    pricingFromDefaults(initialDefaults ?? MOCK_PRICING_DEFAULTS, initialProfiles),
   );
 
-  // Diamond discount is opt-in: the field only opens when this is checked.
-  const [discountEnabled, setDiscountEnabled] = useState<boolean>(
-    () => (pricingFromDefaults(initialDefaults ?? MOCK_PRICING_DEFAULTS).diamondDiscount ?? 0) > 0,
+  // Diamond discount is opt-in: the fields only open when this is checked.
+  const [discountEnabled, setDiscountEnabled] = useState<boolean>(() =>
+    hasAnyPricingDiamondDiscount(
+      pricingFromDefaults(
+        initialDefaults ?? MOCK_PRICING_DEFAULTS,
+        initialProfiles,
+      ),
+    ),
   );
 
   const [selection, setSelection] = useState<VariationSelection>({
@@ -461,6 +528,16 @@ export function PricingWorkspace({
     purities: ["10K", "14K", "18K"],
     colors: ["yellow", "white", "rose"],
     diamondTypes: ["natural", "lab-grown"],
+    diamondColors: [
+      initialDefaults?.defaultDiamondColorGrade ??
+        initialProfiles?.natural?.baseColorGrade ??
+        "G",
+    ],
+    diamondClarities: [
+      initialDefaults?.defaultDiamondClarityGrade ??
+        initialProfiles?.natural?.baseClarityGrade ??
+        "VS1",
+    ],
   });
 
   const [overridesByVariationId, setOverridesByVariationId] = useState<
@@ -494,12 +571,26 @@ export function PricingWorkspace({
     resume?: boolean;
   }) {
     const rows = overrides?.excelRows ?? excelRows;
+    const gradeByType: NonNullable<
+      import("@/lib/pricing-draft").PricingDraft["diamondGradeByType"]
+    > = {};
+    for (const type of ["natural", "lab-grown", "moissanite"] as const) {
+      const profile = diamondProfiles[type];
+      if (profile) {
+        gradeByType[type] = {
+          calculationMethod: profile.calculationMethod,
+          colorRules: profile.colorRules,
+          clarityRules: profile.clarityRules,
+        };
+      }
+    }
     return {
       version: 2 as const,
       extracted: overrides?.extracted ?? extracted,
       pricing,
       selection: overrides?.selection ?? selection,
       purityPercentages: defaults.purityPercentages,
+      diamondGradeByType: gradeByType,
       overridesByVariationId:
         overrides?.overridesByVariationId ?? overridesByVariationId,
       imageName: null,
@@ -522,13 +613,42 @@ export function PricingWorkspace({
     draft: NonNullable<ReturnType<typeof loadPricingDraft>>,
   ) {
     setExtracted(draft.extracted);
-    setPricing(draft.pricing);
-    setDiscountEnabled((draft.pricing.diamondDiscount ?? 0) > 0);
+    const restoredPricing = normalizePricingDiscounts({
+      ...draft.pricing,
+      diamondColorGrade:
+        draft.pricing.diamondColorGrade ??
+        defaults.defaultDiamondColorGrade ??
+        diamondProfiles.natural?.baseColorGrade ??
+        diamondProfiles["lab-grown"]?.baseColorGrade ??
+        diamondProfiles.moissanite?.baseColorGrade,
+      diamondClarityGrade:
+        draft.pricing.diamondClarityGrade ??
+        defaults.defaultDiamondClarityGrade ??
+        diamondProfiles.natural?.baseClarityGrade ??
+        diamondProfiles["lab-grown"]?.baseClarityGrade ??
+        diamondProfiles.moissanite?.baseClarityGrade,
+    });
+    setPricing(restoredPricing);
+    setDiscountEnabled(hasAnyPricingDiamondDiscount(restoredPricing));
     setSelection({
       ...draft.selection,
       diamondTypes: draft.selection.diamondTypes?.length
         ? draft.selection.diamondTypes
         : ["natural", "lab-grown"],
+      diamondColors: draft.selection.diamondColors?.length
+        ? draft.selection.diamondColors
+        : [
+            defaults.defaultDiamondColorGrade ||
+              diamondProfiles.natural?.baseColorGrade ||
+              "G",
+          ],
+      diamondClarities: draft.selection.diamondClarities?.length
+        ? draft.selection.diamondClarities
+        : [
+            defaults.defaultDiamondClarityGrade ||
+              diamondProfiles.natural?.baseClarityGrade ||
+              "VS1",
+          ],
     });
     setOverridesByVariationId(draft.overridesByVariationId);
     const mode: PricingEntryMode =
@@ -597,12 +717,15 @@ export function PricingWorkspace({
   // Also keep wizard steps in the browser history (?step=) so Back stays
   // inside Import → Verify → Price instead of jumping to Settings.
   useEffect(() => {
-    queueMicrotask(() => {
+    let cancelled = false;
+
+    async function hydrate() {
       const draft = loadPricingDraft();
       // Only restore when the user explicitly came back from the results page
       // to edit (draft.resume === true). Every other entry into Jewellery
       // Pricing starts fresh — no leftover data from a previous session.
       if (draft?.resume && draftHasActiveSession(draft)) {
+        if (cancelled) return;
         restoreFromDraft(draft);
         const urlStep = readStepFromUrl();
         if (urlStep && urlStep !== stepRef.current) {
@@ -611,12 +734,66 @@ export function PricingWorkspace({
           writeStepToUrl(stepRef.current, "replace");
         }
         savePricingDraft({ ...draft, resume: false, step: stepRef.current });
-      } else {
-        clearPricingDraft();
-        setStep("import", "replace");
+        hydratedRef.current = true;
+        return;
       }
-      hydratedRef.current = true;
-    });
+
+      clearPricingDraft();
+      setStep("import", "replace");
+
+      // Always pull latest Settings rates/profiles so changes made just before
+      // navigating here show up without a full browser refresh.
+      try {
+        const [defaultsRes, profilesRes] = await Promise.all([
+          fetch("/api/settings/pricing-defaults", { cache: "no-store" }),
+          fetch("/api/pricing-profiles", { cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+
+        let nextDefaults = initialDefaults ?? MOCK_PRICING_DEFAULTS;
+        if (defaultsRes.ok) {
+          nextDefaults = (await defaultsRes.json()) as PricingDefaults;
+        }
+
+        const nextProfiles: Partial<Record<DiamondTypeOption, PricingProfile>> =
+          {};
+        if (profilesRes.ok) {
+          const list = (await profilesRes.json()) as PricingProfile[];
+          for (const profile of list) {
+            if (profile.isDefault) nextProfiles[profile.stoneType] = profile;
+          }
+        }
+
+        setDefaults(nextDefaults);
+        setDiamondProfiles(nextProfiles);
+        const nextPricing = pricingFromDefaults(nextDefaults, nextProfiles);
+        setPricing(nextPricing);
+        setDiscountEnabled(hasAnyPricingDiamondDiscount(nextPricing));
+        setSelection((prev) => ({
+          ...prev,
+          diamondColors: prev.diamondColors?.length
+            ? prev.diamondColors
+            : [
+                nextDefaults.defaultDiamondColorGrade ||
+                  nextProfiles.natural?.baseColorGrade ||
+                  "G",
+              ],
+          diamondClarities: prev.diamondClarities?.length
+            ? prev.diamondClarities
+            : [
+                nextDefaults.defaultDiamondClarityGrade ||
+                  nextProfiles.natural?.baseClarityGrade ||
+                  "VS1",
+              ],
+        }));
+      } catch {
+        // Keep server-rendered initial props if the refresh fetch fails.
+      }
+
+      if (!cancelled) hydratedRef.current = true;
+    }
+
+    void hydrate();
 
     function onPopState() {
       const next = readStepFromUrl() ?? "import";
@@ -636,12 +813,26 @@ export function PricingWorkspace({
     }
 
     window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("popstate", onPopState);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only hydrate + history
   }, []);
 
-  const sessionInput: PricingSessionInput = useMemo(
-    () => ({
+  const sessionInput: PricingSessionInput = useMemo(() => {
+    const gradeByType: PricingSessionInput["diamondGradeByType"] = {};
+    for (const type of ["natural", "lab-grown", "moissanite"] as const) {
+      const profile = diamondProfiles[type];
+      if (profile) {
+        gradeByType[type] = {
+          calculationMethod: profile.calculationMethod,
+          colorRules: profile.colorRules,
+          clarityRules: profile.clarityRules,
+        };
+      }
+    }
+    return {
       netWeight: extracted.netWeight,
       diamondWeight: extracted.diamondWeight,
       gold24kRate: pricing.gold24kRate,
@@ -651,10 +842,15 @@ export function PricingWorkspace({
       purities: selection.purities,
       colors: selection.colors,
       diamondTypes: selection.diamondTypes,
+      diamondColors: selection.diamondColors,
+      diamondClarities: selection.diamondClarities,
+      diamondGradeByType: gradeByType,
       diamondRateNatural: pricing.diamondRateNatural,
       diamondRateLabGrown: pricing.diamondRateLabGrown,
       diamondRateMoissanite: pricing.diamondRateMoissanite,
-      diamondDiscountPercent: pricing.diamondDiscount,
+      diamondDiscountPercentNatural: pricing.diamondDiscountNatural,
+      diamondDiscountPercentLabGrown: pricing.diamondDiscountLabGrown,
+      diamondDiscountPercentMoissanite: pricing.diamondDiscountMoissanite,
       makingCharge: pricing.makingCharge,
       makingCalcType: pricing.makingCalcType,
       otherCharges: pricing.otherCharges.map((c) => ({
@@ -664,16 +860,16 @@ export function PricingWorkspace({
         calcType: c.calcType,
       })),
       overridesByVariationId,
-    }),
-    [
-      extracted,
-      pricing,
-      defaults.purityPercentages,
-      defaults.silverRate,
-      selection,
-      overridesByVariationId,
-    ],
-  );
+    };
+  }, [
+    extracted,
+    pricing,
+    defaults.purityPercentages,
+    defaults.silverRate,
+    selection,
+    overridesByVariationId,
+    diamondProfiles,
+  ]);
 
   const validationIssues = useMemo(
     () => validatePricingSession(sessionInput),
@@ -685,6 +881,8 @@ export function PricingWorkspace({
     selection.purities,
     selection.colors,
     selection.diamondTypes,
+    selection.diamondColors,
+    selection.diamondClarities,
   );
 
   const pricedVariations = useMemo(() => {
@@ -693,6 +891,22 @@ export function PricingWorkspace({
   }, [sessionInput, validationIssues.length]);
 
   const estimatedPreview = pricedVariations[0]?.calculation.finalPrice ?? "0";
+
+  const gradeProfileForUi = useMemo(() => {
+    for (const type of selection.diamondTypes) {
+      if (diamondProfiles[type]) return diamondProfiles[type]!;
+    }
+    return (
+      diamondProfiles.natural ??
+      diamondProfiles["lab-grown"] ??
+      diamondProfiles.moissanite ??
+      null
+    );
+  }, [selection.diamondTypes, diamondProfiles]);
+
+  const diamondColorOptions = gradeProfileForUi?.colorRules.map((r) => r.grade) ?? [];
+  const diamondClarityOptions =
+    gradeProfileForUi?.clarityRules.map((r) => r.grade) ?? [];
 
   // Gold purities price off the gold 24K rate; silver purities off the silver
   // rate. Kept as two separate tables so Gold and Silver never mix.
@@ -1591,7 +1805,10 @@ export function PricingWorkspace({
                     </ConfigSection>
                   )}
 
-                  <ConfigSection title="Colour">
+                  <ConfigSection
+                    title="Metal colour"
+                    hint="Yellow, white, or rose for gold; sterling for silver."
+                  >
                     <div className="grid grid-cols-2 gap-2.5">
                       {[
                         ...(goldSelected ? COLOR_OPTIONS : []),
@@ -1648,6 +1865,60 @@ export function PricingWorkspace({
                       ))}
                     </div>
                   </ConfigSection>
+
+                  {diamondColorOptions.length > 0 ? (
+                    <ConfigSection
+                      title="Diamond colour"
+                      hint="Select grades to price — labels look like G-VS1."
+                    >
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {diamondColorOptions.map((grade) => (
+                          <SelectChip
+                            key={grade}
+                            checked={selection.diamondColors.includes(grade)}
+                            onToggle={() =>
+                              setSelection((prev) => ({
+                                ...prev,
+                                diamondColors: toggleInArray(
+                                  prev.diamondColors,
+                                  grade,
+                                ),
+                              }))
+                            }
+                          >
+                            {grade}
+                          </SelectChip>
+                        ))}
+                      </div>
+                    </ConfigSection>
+                  ) : null}
+
+                  {diamondClarityOptions.length > 0 ? (
+                    <ConfigSection
+                      title="Diamond clarity"
+                      hint="Pair with colour grades for a full quote matrix."
+                    >
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {diamondClarityOptions.map((grade) => (
+                          <SelectChip
+                            key={grade}
+                            checked={selection.diamondClarities.includes(grade)}
+                            onToggle={() =>
+                              setSelection((prev) => ({
+                                ...prev,
+                                diamondClarities: toggleInArray(
+                                  prev.diamondClarities,
+                                  grade,
+                                ),
+                              }))
+                            }
+                          >
+                            {grade}
+                          </SelectChip>
+                        ))}
+                      </div>
+                    </ConfigSection>
+                  ) : null}
                 </div>
               </section>
 
@@ -1774,7 +2045,7 @@ export function PricingWorkspace({
                           <option value="cushion">Cushion</option>
                         </select>
                       </Field>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2 sm:col-span-2">
                         <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium text-charcoal-muted">
                           <Checkbox
                             checked={discountEnabled}
@@ -1782,25 +2053,63 @@ export function PricingWorkspace({
                               const on = value === true;
                               setDiscountEnabled(on);
                               if (!on) {
-                                // Turning discount off clears it to 0.
                                 setPricing((p) => ({
                                   ...p,
                                   diamondDiscount: 0,
+                                  diamondDiscountNatural: 0,
+                                  diamondDiscountLabGrown: 0,
+                                  diamondDiscountMoissanite: 0,
                                 }));
                               }
                             }}
                           />
                           Apply discount (%)
                         </label>
-                        <NumberInput
-                          value={pricing.diamondDiscount}
-                          disabled={!discountEnabled}
-                          onValueChange={(n) =>
-                            setPricing((p) => ({ ...p, diamondDiscount: n }))
-                          }
-                        />
+                        <div
+                          className={cn(
+                            "grid gap-3 sm:grid-cols-3",
+                            !discountEnabled && "pointer-events-none opacity-50",
+                          )}
+                        >
+                          {(
+                            [
+                              {
+                                key: "diamondDiscountNatural" as const,
+                                label: "Natural",
+                              },
+                              {
+                                key: "diamondDiscountLabGrown" as const,
+                                label: "Lab-grown",
+                              },
+                              {
+                                key: "diamondDiscountMoissanite" as const,
+                                label: "Moissanite",
+                              },
+                            ] as const
+                          ).map(({ key, label }) => (
+                            <div key={key} className="space-y-1.5">
+                              <span className="block text-[11px] font-medium uppercase tracking-wide text-charcoal-muted">
+                                {label}
+                              </span>
+                              <NumberInput
+                                value={pricing[key]}
+                                disabled={!discountEnabled}
+                                aria-label={`${label} discount percent`}
+                                onValueChange={(n) =>
+                                  setPricing((p) => ({
+                                    ...p,
+                                    [key]: n,
+                                    ...(key === "diamondDiscountNatural"
+                                      ? { diamondDiscount: n }
+                                      : {}),
+                                  }))
+                                }
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <Field label="Natural Rate (₹ / CT)">
+                      <Field label="Natural base (₹ / CT)">
                         <NumberInput
                           value={pricing.diamondRateNatural}
                           onValueChange={(n) =>
@@ -1811,7 +2120,7 @@ export function PricingWorkspace({
                           }
                         />
                       </Field>
-                      <Field label="Lab Grown Rate (₹ / CT)">
+                      <Field label="Lab Grown base (₹ / CT)">
                         <NumberInput
                           value={pricing.diamondRateLabGrown}
                           onValueChange={(n) =>
@@ -1822,7 +2131,7 @@ export function PricingWorkspace({
                           }
                         />
                       </Field>
-                      <Field label="Moissanite Rate (₹ / CT)">
+                      <Field label="Moissanite base (₹ / CT)">
                         <NumberInput
                           value={pricing.diamondRateMoissanite}
                           onValueChange={(n) =>
@@ -1834,6 +2143,12 @@ export function PricingWorkspace({
                         />
                       </Field>
                     </div>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Base rates come from Settings. Colour and clarity chips on the
+                      left build quote lines like{" "}
+                      <span className="font-medium text-charcoal">18K Yellow · Natural · G-VS1</span>
+                      , applying your +/- % rules automatically.
+                    </p>
                   </PricingCard>
 
                   <PricingCard title="Charges" accent="charges">
