@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Store } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EtsyBreakdownDialog } from "@/components/pricing/etsy-breakdown-dialog";
 import {
   Card,
   CardContent,
@@ -26,6 +27,7 @@ import {
   calculateAllVariations,
   countVariations,
   getPriceRange,
+  toMoneyNumber,
   validatePricingSession,
   type PricingSessionInput,
   type VariationOverrides,
@@ -35,6 +37,10 @@ import {
   savePricingDraft,
   type PricingDraft,
 } from "@/lib/pricing-draft";
+import {
+  DEFAULT_ETSY_COMMISSION,
+  type EtsyCommissionSettings,
+} from "@/types/etsy";
 
 function DataRow({ label, value }: { label: string; value: string }) {
   return (
@@ -55,9 +61,35 @@ export function PricingResultsView() {
     { INR: 1 },
   );
   const [fxCapturedAt, setFxCapturedAt] = useState<string | null>(null);
+  const [etsyEnabled, setEtsyEnabled] = useState(false);
+  const [etsySettings, setEtsySettings] =
+    useState<EtsyCommissionSettings>(DEFAULT_ETSY_COMMISSION);
+  const [etsyOpen, setEtsyOpen] = useState(false);
 
   useEffect(() => {
     queueMicrotask(() => setDraft(loadPricingDraft()));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings/etsy-commission");
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          enabled?: boolean;
+          settings?: EtsyCommissionSettings | null;
+        };
+        if (cancelled) return;
+        setEtsyEnabled(Boolean(body.enabled));
+        if (body.settings) setEtsySettings(body.settings);
+      } catch {
+        // Etsy optional — keep button hidden
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -131,8 +163,9 @@ export function PricingResultsView() {
         calcType: c.calcType,
       })),
       overridesByVariationId: draft.overridesByVariationId,
+      etsyCommission: etsyEnabled ? etsySettings : null,
     };
-  }, [draft]);
+  }, [draft, etsyEnabled, etsySettings]);
 
   const validationIssues = useMemo(
     () => (sessionInput ? validatePricingSession(sessionInput) : []),
@@ -150,6 +183,18 @@ export function PricingResultsView() {
     () => getPriceRange(pricedVariations),
     [pricedVariations],
   );
+
+  /** Mid jewellery cost (before Etsy) for the breakdown dialog. */
+  const etsyProductCost = useMemo(() => {
+    if (pricedVariations.length === 0) return 0;
+    if (pricedVariations[0]?.etsy) {
+      const values = pricedVariations.map((v) =>
+        toMoneyNumber(v.etsy!.jewelleryFinalPrice),
+      );
+      return (Math.min(...values) + Math.max(...values)) / 2;
+    }
+    return (priceRange.min + priceRange.max) / 2;
+  }, [pricedVariations, priceRange.min, priceRange.max]);
 
   function persist(next: PricingDraft) {
     setDraft(next);
@@ -295,6 +340,18 @@ export function PricingResultsView() {
                 No FX snapshot — Settings → Update Currency Rates
               </span>
             ) : null}
+            {etsyEnabled ? (
+              <Button
+                type="button"
+                variant="champagne"
+                size="sm"
+                className="h-8"
+                onClick={() => setEtsyOpen(true)}
+              >
+                <Store className="h-3.5 w-3.5" />
+                Etsy breakdown
+              </Button>
+            ) : null}
             <Badge className="border-champagne/40 bg-champagne-muted/60 px-3 py-1 text-sm font-semibold text-charcoal">
               {variationCount} variation
               {variationCount === 1 ? "" : "s"}
@@ -309,6 +366,7 @@ export function PricingResultsView() {
                 maximumFractionDigits: 0,
                 minimumFractionDigits: 0,
               })}
+              {etsyEnabled ? " · incl. Etsy" : ""}
             </span>
           </div>
         </CardHeader>
@@ -406,6 +464,15 @@ export function PricingResultsView() {
           category={extracted.category}
         />
       </div>
+
+      {etsyEnabled ? (
+        <EtsyBreakdownDialog
+          open={etsyOpen}
+          onOpenChange={setEtsyOpen}
+          productCost={etsyProductCost}
+          defaults={etsySettings}
+        />
+      ) : null}
     </div>
   );
 }

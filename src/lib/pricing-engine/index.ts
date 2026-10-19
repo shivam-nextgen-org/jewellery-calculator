@@ -63,6 +63,7 @@ export type {
   DiamondGradeProfileInput,
   DiamondGradeProfileMap,
   PricedVariation,
+  PricedVariationEtsy,
   PricingBreakdown,
   PricingSessionInput,
   PricingValidationIssue,

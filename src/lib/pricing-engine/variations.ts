@@ -6,6 +6,7 @@ import type {
   PricingGradeRule,
   StoneGradeSelection,
 } from "@/types/jewellery";
+import { applyEtsyToPricedVariations } from "@/lib/etsy/apply-to-variations";
 import { calculateJewelleryPrice, hasAnyOverride } from "./calculate";
 import { d, toMoneyNumber } from "./decimal";
 import {
@@ -369,7 +370,7 @@ export function calculateAllVariations(
 ): PricedVariation[] {
   const specs = generateVariationSpecs(session);
 
-  return specs.map((spec) => {
+  const rows = specs.map((spec) => {
     const overrides: VariationOverrides | undefined =
       session.overridesByVariationId?.[spec.id];
 
@@ -394,6 +395,9 @@ export function calculateAllVariations(
       hasManualOverride: hasAnyOverride(calculation),
     };
   });
+
+  if (!session.etsyCommission) return rows;
+  return applyEtsyToPricedVariations(rows, session.etsyCommission);
 }
 
 export function getPriceRange(variations: PricedVariation[]): {

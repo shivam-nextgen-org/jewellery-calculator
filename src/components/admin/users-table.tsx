@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Check, X } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -42,6 +43,7 @@ type AppUser = {
   email: string;
   name: string;
   isActive: boolean;
+  etsyEnabled: boolean;
   createdAt: string;
 };
 
@@ -103,7 +105,9 @@ export function AdminUsersTable({
   initialUsers: AppUser[];
   securityCenterEnabled: boolean;
 }) {
-  const [users, setUsers] = useState<AppUser[]>(initialUsers);
+  const [users, setUsers] = useState<AppUser[]>(() =>
+    initialUsers.map((u) => ({ ...u, etsyEnabled: Boolean(u.etsyEnabled) })),
+  );
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +119,7 @@ export function AdminUsersTable({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [etsyEnabled, setEtsyEnabled] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   // API keys drawer + delete confirm.
@@ -170,6 +175,7 @@ export function AdminUsersTable({
     setName("");
     setEmail("");
     setPassword("");
+    setEtsyEnabled(false);
     setFormError(null);
   }
 
@@ -179,6 +185,7 @@ export function AdminUsersTable({
     setName(user.name);
     setEmail(user.email);
     setPassword("");
+    setEtsyEnabled(Boolean(user.etsyEnabled));
     setFormError(null);
   }
 
@@ -191,20 +198,29 @@ export function AdminUsersTable({
         const res = await fetch("/api/admin/users", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: editingId, name }),
+          body: JSON.stringify({ id: editingId, name, etsyEnabled }),
         });
         const data = (await res.json()) as AppUser & { error?: string };
         if (!res.ok) throw new Error(data.error || "Could not update user");
-        setUsers((prev) => prev.map((u) => (u.id === data.id ? data : u)));
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === data.id
+              ? { ...data, etsyEnabled: Boolean(data.etsyEnabled) }
+              : u,
+          ),
+        );
       } else {
         const res = await fetch("/api/admin/users", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, email, password }),
+          body: JSON.stringify({ name, email, password, etsyEnabled }),
         });
         const data = (await res.json()) as AppUser & { error?: string };
         if (!res.ok) throw new Error(data.error || "Could not create user");
-        setUsers((prev) => [data, ...prev]);
+        setUsers((prev) => [
+          { ...data, etsyEnabled: Boolean(data.etsyEnabled) },
+          ...prev,
+        ]);
       }
       setDialog(null);
     } catch (err) {
@@ -226,7 +242,19 @@ export function AdminUsersTable({
       setError(data.error || "Could not update user");
       return;
     }
-    setUsers((prev) => prev.map((row) => (row.id === data.id ? data : row)));
+    setUsers((prev) =>
+      prev.map((row) =>
+        row.id === data.id
+          ? {
+              ...data,
+              etsyEnabled:
+                typeof data.etsyEnabled === "boolean"
+                  ? data.etsyEnabled
+                  : row.etsyEnabled,
+            }
+          : row,
+      ),
+    );
   }
 
   async function confirmDelete() {
@@ -429,15 +457,22 @@ export function AdminUsersTable({
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge
-                            className={
-                              user.isActive
-                                ? "border-emerald-600/25 bg-emerald-600/10 text-emerald-800"
-                                : "border-destructive/25 bg-destructive/10 text-destructive"
-                            }
-                          >
-                            {user.isActive ? "Active" : "Disabled"}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge
+                              className={
+                                user.isActive
+                                  ? "border-emerald-600/25 bg-emerald-600/10 text-emerald-800"
+                                  : "border-destructive/25 bg-destructive/10 text-destructive"
+                              }
+                            >
+                              {user.isActive ? "Active" : "Disabled"}
+                            </Badge>
+                            {user.etsyEnabled ? (
+                              <Badge className="border-champagne/40 bg-champagne-muted/40 text-charcoal">
+                                Etsy
+                              </Badge>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
                           {shortDate(user.createdAt)}
@@ -697,6 +732,24 @@ export function AdminUsersTable({
                 </ul>
               </div>
             ) : null}
+            <div className="rounded-lg border border-border/80 bg-ivory/40 px-3 py-3">
+              <label className="flex cursor-pointer items-start gap-3">
+                <Checkbox
+                  checked={etsyEnabled}
+                  onCheckedChange={(v) => setEtsyEnabled(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-charcoal">
+                    Enable Etsy marketplace
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Only turns Etsy on for this user. Commission rates are set
+                    in their Settings panel.
+                  </span>
+                </span>
+              </label>
+            </div>
             <DialogFooter>
               <Button
                 type="button"

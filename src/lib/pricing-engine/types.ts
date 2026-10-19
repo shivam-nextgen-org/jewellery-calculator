@@ -4,6 +4,7 @@ import type {
   GoldMetalOption,
   GoldPurityOption,
 } from "@/types/jewellery";
+import type { EtsyCommissionSettings } from "@/types/etsy";
 import type { DecimalInput } from "./decimal";
 
 export interface ChargeInput {
@@ -94,9 +95,18 @@ export interface VariationSpec {
   diamondRate: string;
 }
 
+export interface PricedVariationEtsy {
+  /** Jewellery final before Etsy markup. */
+  jewelleryFinalPrice: string;
+  /** Amount added so listing price covers Etsy fees + TCS/TDS. */
+  etsyAmount: string;
+}
+
 export interface PricedVariation extends VariationSpec {
   calculation: CalculateJewelleryPriceResult;
   hasManualOverride: boolean;
+  /** Set when Etsy fees are baked into `calculation.finalPrice`. */
+  etsy?: PricedVariationEtsy;
 }
 
 export interface PricingValidationIssue {
@@ -178,4 +188,9 @@ export interface PricingSessionInput extends VariationSpecInput {
   otherCharges: ChargeInput[];
   /** Per-variation overrides keyed by variation id. */
   overridesByVariationId?: Record<string, VariationOverrides>;
+  /**
+   * When set, Etsy marketplace fees are calculated per variation and added
+   * as an addon on top of jewellery final (see `PricedVariation.etsy`).
+   */
+  etsyCommission?: EtsyCommissionSettings | null;
 }

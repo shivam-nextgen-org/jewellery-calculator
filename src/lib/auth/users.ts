@@ -7,6 +7,7 @@ function mapUser(row: {
   email: string;
   name: string;
   isActive: boolean;
+  etsyEnabled?: boolean;
   createdAt: Date;
 }) {
   return {
@@ -14,6 +15,7 @@ function mapUser(row: {
     email: row.email,
     name: row.name,
     isActive: row.isActive,
+    etsyEnabled: Boolean(row.etsyEnabled),
     createdAt: row.createdAt,
   };
 }
@@ -24,7 +26,7 @@ export async function listAppUsers() {
     .collection("User")
     .find({ role: "USER" })
     .sort({ createdAt: -1 })
-    .project({ email: 1, name: 1, isActive: 1, createdAt: 1 })
+    .project({ email: 1, name: 1, isActive: 1, etsyEnabled: 1, createdAt: 1 })
     .toArray();
   return rows.map((row) =>
     mapUser(
@@ -33,6 +35,7 @@ export async function listAppUsers() {
         email: string;
         name: string;
         isActive: boolean;
+        etsyEnabled?: boolean;
         createdAt: Date;
       },
     ),
@@ -43,6 +46,7 @@ export async function createAppUser(input: {
   name: string;
   email: string;
   password: string;
+  etsyEnabled?: boolean;
 }) {
   const name = input.name.trim();
   const email = input.email.trim().toLowerCase();
@@ -63,6 +67,7 @@ export async function createAppUser(input: {
     passwordHash: await hashPassword(input.password),
     role: "USER",
     isActive: true,
+    etsyEnabled: Boolean(input.etsyEnabled),
     createdAt: now,
     updatedAt: now,
   };
@@ -70,7 +75,10 @@ export async function createAppUser(input: {
   return mapUser(doc);
 }
 
-export async function updateAppUser(id: string, input: { name: string }) {
+export async function updateAppUser(
+  id: string,
+  input: { name: string; etsyEnabled?: boolean },
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Name is required.");
   const db = await getDb();
@@ -78,14 +86,20 @@ export async function updateAppUser(id: string, input: { name: string }) {
   if (!user || user.role !== "USER") {
     throw new Error("User not found.");
   }
-  await db
-    .collection("User")
-    .updateOne({ _id: oid(id) }, { $set: { name, updatedAt: new Date() } });
+  const etsyEnabled =
+    typeof input.etsyEnabled === "boolean"
+      ? input.etsyEnabled
+      : Boolean(user.etsyEnabled);
+  await db.collection("User").updateOne(
+    { _id: oid(id) },
+    { $set: { name, etsyEnabled, updatedAt: new Date() } },
+  );
   return {
     id,
     email: user.email as string,
     name,
     isActive: user.isActive as boolean,
+    etsyEnabled,
     createdAt: user.createdAt as Date,
   };
 }
@@ -105,6 +119,7 @@ export async function setUserActive(id: string, isActive: boolean) {
     email: user.email as string,
     name: user.name as string,
     isActive,
+    etsyEnabled: Boolean(user.etsyEnabled),
     createdAt: user.createdAt as Date,
   };
 }
@@ -117,10 +132,6 @@ export async function deleteAppUser(id: string) {
     throw new Error("User not found.");
   }
 
-  // Remove all data owned by this user so nothing is left orphaned.
-  // Some records are linked indirectly (variations -> products,
-  // calculation items -> calculations, extracted data -> ocr imports),
-  // so gather those parent ids first.
   const [calcs, products, imports, profiles] = await Promise.all([
     db
       .collection("PricingCalculation")
@@ -172,8 +183,6 @@ export async function deleteAppUser(id: string) {
     db.collection("AppSetting").deleteMany({ userId }),
     db.collection("ApiKey").deleteMany({ userId }),
     db.collection("PricingProfile").deleteMany({ userId }),
-    // Devices, sessions and slot/enrollment state. Security events are kept
-    // for their retention period (audit trail).
     deleteSecurityRecordsForUser(db, userId),
   ]);
 

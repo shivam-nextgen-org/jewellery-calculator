@@ -25,7 +25,7 @@ import type { PricedVariation, VariationOverrides } from "@/lib/pricing-engine";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200] as const;
-const TABLE_COL_SPAN = 15;
+const TABLE_COL_SPAN_BASE = 15;
 
 type MoneyFmt = {
   currency: SupportedCurrency;
@@ -136,8 +136,29 @@ function BreakdownBlock({
         </div>
       </div>
       <div className="border-t border-border pt-3">
+        {variation.etsy ? (
+          <div className="mb-2 space-y-1 text-sm">
+            <p className="flex justify-between gap-4 text-muted-foreground">
+              <span>Jewellery</span>
+              <span className="tabular-nums">
+                {money(variation.etsy.jewelleryFinalPrice, fmt)}
+              </span>
+            </p>
+            <p className="flex justify-between gap-4 text-muted-foreground">
+              <span>Etsy fees</span>
+              <span className="tabular-nums">
+                {money(variation.etsy.etsyAmount, fmt)}
+              </span>
+            </p>
+          </div>
+        ) : null}
         <p className="text-xs uppercase tracking-[0.06em] text-champagne">
           Final Price
+          {variation.etsy ? (
+            <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground">
+              (incl. Etsy)
+            </span>
+          ) : null}
           {c.appliedOverrides.finalPrice && (
             <Badge className="ml-2">Override</Badge>
           )}
@@ -160,15 +181,20 @@ function OverrideEditor({
   onClear: () => void;
 }) {
   const c = variation.calculation;
+  const jewelleryFinal =
+    variation.etsy?.jewelleryFinalPrice ?? c.finalPrice;
   const [making, setMaking] = useState(c.makingCharge);
   const [discount, setDiscount] = useState(c.breakdown.diamondDiscountPercent);
   const [other, setOther] = useState(c.otherChargesTotal);
-  const [finalPrice, setFinalPrice] = useState(c.finalPrice);
+  const [finalPrice, setFinalPrice] = useState(jewelleryFinal);
 
   return (
     <div className="sticky left-0 w-screen max-w-[calc(100vw-2rem)] space-y-3 bg-surface px-4 py-4 sm:w-auto sm:max-w-none sm:px-6">
       <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">
         Manual overrides
+        {variation.etsy
+          ? " · Etsy fees are added after jewellery final"
+          : ""}
       </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1.5">
@@ -199,7 +225,9 @@ function OverrideEditor({
           />
         </div>
         <div className="space-y-1.5">
-          <Label>Final price (₹)</Label>
+          <Label>
+            {variation.etsy ? "Jewellery final (₹)" : "Final price (₹)"}
+          </Label>
           <Input
             type="number"
             value={finalPrice}
@@ -287,8 +315,17 @@ export function VariationResultsTable({
     );
   }
 
+  const hasEtsy = variations.some((v) => Boolean(v.etsy));
+  const tableColSpan = TABLE_COL_SPAN_BASE + (hasEtsy ? 1 : 0);
+  // Right-frozen widths: Final 150 · Etsy 90 (optional) · Other 80 · Making 90 · Dia 110
+  const rightFinal = 150;
+  const rightEtsy = hasEtsy ? 90 : 0;
+  const rightOther = rightFinal + rightEtsy; // 150 or 240
+  const rightMaking = rightOther + 80; // 230 or 320
+  const rightDiamond = rightMaking + 90; // 320 or 410
+
   // Column classes for the frozen (sticky) columns. Left group: toggle +
-  // Variation. Right group: Diamond ₹, Making, Other, Final, edit. Middle
+  // Variation. Right group: Diamond ₹, Making, Other, Etsy?, Final, edit. Middle
   // columns scroll horizontally between them.
   // Frozen columns use a distinct champagne tint so they stand out from the
   // scrolling (white) middle columns.
@@ -392,15 +429,52 @@ export function VariationResultsTable({
               <th className={cn("px-3 py-3 font-medium text-right", grid)}>Metal Rate</th>
               <th className={cn("px-3 py-3 font-medium text-right", grid)}>Metal ₹</th>
               <th className={cn("px-3 py-3 font-medium text-right", grid)}>Dia Wt</th>
-              <th className={cn("px-3 py-3 font-medium text-right lg:right-[320px] min-w-[110px]", grid, freezeLg, headBg)}>
+              <th
+                className={cn(
+                  "px-3 py-3 font-medium text-right min-w-[110px]",
+                  grid,
+                  freezeLg,
+                  headBg,
+                )}
+                style={{ right: rightDiamond }}
+              >
                 Diamond ₹
               </th>
-              <th className={cn("px-3 py-3 font-medium text-right lg:right-[230px] min-w-[90px]", grid, freezeLg, headBg)}>
+              <th
+                className={cn(
+                  "px-3 py-3 font-medium text-right min-w-[90px]",
+                  grid,
+                  freezeLg,
+                  headBg,
+                )}
+                style={{ right: rightMaking }}
+              >
                 Making
               </th>
-              <th className={cn("px-3 py-3 font-medium text-right lg:right-[150px] min-w-[80px]", grid, freezeLg, headBg)}>
+              <th
+                className={cn(
+                  "px-3 py-3 font-medium text-right min-w-[80px]",
+                  grid,
+                  freezeLg,
+                  headBg,
+                )}
+                style={{ right: rightOther }}
+              >
                 Other
               </th>
+              {hasEtsy ? (
+                <th
+                  className={cn(
+                    "px-3 py-3 font-medium text-right min-w-[90px]",
+                    grid,
+                    freezeLg,
+                    headBg,
+                  )}
+                  style={{ right: rightFinal }}
+                >
+                  Etsy
+                </th>
+              ) : null}
               <th className={cn("px-3 py-3 font-medium text-right right-0 min-w-[150px]", grid, freezeAll, headBg)}>
                 Final
               </th>
@@ -410,7 +484,7 @@ export function VariationResultsTable({
             {pageRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={TABLE_COL_SPAN}
+                  colSpan={tableColSpan}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   No variations match your search.
@@ -506,34 +580,52 @@ export function VariationResultsTable({
                     </td>
                     <td
                       className={cn(
-                        "px-3 py-3 text-right tabular-nums whitespace-nowrap lg:right-[320px] min-w-[110px]",
+                        "px-3 py-3 text-right tabular-nums whitespace-nowrap min-w-[110px]",
                         grid,
                         freezeLg,
                         cellBg,
                       )}
+                      style={{ right: rightDiamond }}
                     >
                       {money(row.calculation.diamondFinalPrice, fmt)}
                     </td>
                     <td
                       className={cn(
-                        "px-3 py-3 text-right tabular-nums whitespace-nowrap lg:right-[230px] min-w-[90px]",
+                        "px-3 py-3 text-right tabular-nums whitespace-nowrap min-w-[90px]",
                         grid,
                         freezeLg,
                         cellBg,
                       )}
+                      style={{ right: rightMaking }}
                     >
                       {money(row.calculation.makingCharge, fmt)}
                     </td>
                     <td
                       className={cn(
-                        "px-3 py-3 text-right tabular-nums whitespace-nowrap lg:right-[150px] min-w-[80px]",
+                        "px-3 py-3 text-right tabular-nums whitespace-nowrap min-w-[80px]",
                         grid,
                         freezeLg,
                         cellBg,
                       )}
+                      style={{ right: rightOther }}
                     >
                       {money(row.calculation.otherChargesTotal, fmt)}
                     </td>
+                    {hasEtsy ? (
+                      <td
+                        className={cn(
+                          "px-3 py-3 text-right tabular-nums whitespace-nowrap min-w-[90px]",
+                          grid,
+                          freezeLg,
+                          cellBg,
+                        )}
+                        style={{ right: rightFinal }}
+                      >
+                        {row.etsy
+                          ? money(row.etsy.etsyAmount, fmt)
+                          : "—"}
+                      </td>
+                    ) : null}
                     <td
                       className={cn(
                         "px-3 py-3 right-0 min-w-[150px]",
@@ -563,7 +655,7 @@ export function VariationResultsTable({
                   </tr>
                   {(open || editing) && (
                     <tr className="border-b border-border/70">
-                      <td colSpan={TABLE_COL_SPAN} className="p-0">
+                      <td colSpan={tableColSpan} className="p-0">
                         {open && (
                           <BreakdownBlock
                             variation={row}

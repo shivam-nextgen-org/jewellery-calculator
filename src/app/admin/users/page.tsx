@@ -24,6 +24,7 @@ export default async function AdminUsersPage() {
       <AdminUsersTable
         initialUsers={users.map((user) => ({
           ...user,
+          etsyEnabled: Boolean(user.etsyEnabled),
           createdAt: user.createdAt.toISOString(),
         }))}
         securityCenterEnabled={securityCenterEnabled}

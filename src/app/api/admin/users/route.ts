@@ -34,11 +34,13 @@ export async function POST(request: Request) {
       name?: string;
       email?: string;
       password?: string;
+      etsyEnabled?: boolean;
     };
     const user = await createAppUser({
       name: body.name ?? "",
       email: body.email ?? "",
       password: body.password ?? "",
+      etsyEnabled: Boolean(body.etsyEnabled),
     });
     return NextResponse.json(user, { status: 201 });
   } catch (error) {
@@ -53,13 +55,16 @@ export async function PATCH(request: Request) {
       id?: string;
       isActive?: boolean;
       name?: string;
+      etsyEnabled?: boolean;
     };
     if (!body.id) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
-    // Two shapes share this endpoint: a name edit, or an active toggle.
     if (typeof body.name === "string") {
-      const user = await updateAppUser(body.id, { name: body.name });
+      const user = await updateAppUser(body.id, {
+        name: body.name,
+        etsyEnabled: body.etsyEnabled,
+      });
       return NextResponse.json(user);
     }
     if (typeof body.isActive === "boolean") {

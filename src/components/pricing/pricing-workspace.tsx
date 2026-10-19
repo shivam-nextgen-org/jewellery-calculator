@@ -75,6 +75,7 @@ import type {
   PricingStep,
   VariationSelection,
 } from "@/types/jewellery";
+import type { EtsyCommissionSettings } from "@/types/etsy";
 import { cn } from "@/lib/utils";
 
 function hasAnyPricingDiamondDiscount(
@@ -439,6 +440,31 @@ export function PricingWorkspace({
   >({});
 
   const [isCalculating, setIsCalculating] = useState(false);
+  const [etsyCommission, setEtsyCommission] =
+    useState<EtsyCommissionSettings | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings/etsy-commission");
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          enabled?: boolean;
+          settings?: EtsyCommissionSettings | null;
+        };
+        if (cancelled) return;
+        setEtsyCommission(
+          body.enabled && body.settings ? body.settings : null,
+        );
+      } catch {
+        if (!cancelled) setEtsyCommission(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function setStep(next: PricingStep, historyMode: "push" | "replace" | "none" = "push") {
     stepRef.current = next;
@@ -719,6 +745,7 @@ export function PricingWorkspace({
         calcType: c.calcType,
       })),
       overridesByVariationId,
+      etsyCommission,
     };
   }, [
     extracted,
@@ -728,6 +755,7 @@ export function PricingWorkspace({
     selection,
     overridesByVariationId,
     diamondProfiles,
+    etsyCommission,
   ]);
 
   const validationIssues = useMemo(
@@ -1574,6 +1602,7 @@ export function PricingWorkspace({
                   <div className="min-w-0 flex-1 px-1.5">
                     <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
                       Estimated
+                      {etsyCommission ? " · incl. Etsy" : ""}
                     </p>
                     <p className="truncate text-lg font-semibold tabular-nums text-charcoal">
                       {validationIssues.length

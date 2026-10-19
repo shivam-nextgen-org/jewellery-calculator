@@ -31,32 +31,46 @@ export function buildVariationExportRows(
 ): Record<string, string | number>[] {
   const c = meta.currency;
 
+  const hasEtsy = variations.some((row) => Boolean(row.etsy));
+
   // Columns mirror the on-screen "Variation prices" table exactly — same
   // headers, same order.
-  return variations.map((row) => ({
-    Variation: row.label,
-    "Metal / Purity": `${row.metalLabel} · ${row.purity}`,
-    Color: row.colorLabel.replace(/ Gold$/, ""),
-    Diamond: row.diamondTypeLabel,
-    "Dia Colour": row.diamondColorGrade ?? "—",
-    Clarity: row.diamondClarityGrade ?? "—",
-    "Net Wt": meta.netWeight,
-    "Metal Rate": moneyInDisplayCurrency(row.goldRatePerGram, c, meta.rates),
-    "Metal ₹": moneyInDisplayCurrency(row.calculation.goldPrice, c, meta.rates),
-    "Dia Wt": meta.diamondWeight,
-    "Diamond ₹": moneyInDisplayCurrency(
-      row.calculation.diamondFinalPrice,
+  return variations.map((row) => {
+    const base: Record<string, string | number> = {
+      Variation: row.label,
+      "Metal / Purity": `${row.metalLabel} · ${row.purity}`,
+      Color: row.colorLabel.replace(/ Gold$/, ""),
+      Diamond: row.diamondTypeLabel,
+      "Dia Colour": row.diamondColorGrade ?? "—",
+      Clarity: row.diamondClarityGrade ?? "—",
+      "Net Wt": meta.netWeight,
+      "Metal Rate": moneyInDisplayCurrency(row.goldRatePerGram, c, meta.rates),
+      "Metal ₹": moneyInDisplayCurrency(row.calculation.goldPrice, c, meta.rates),
+      "Dia Wt": meta.diamondWeight,
+      "Diamond ₹": moneyInDisplayCurrency(
+        row.calculation.diamondFinalPrice,
+        c,
+        meta.rates,
+      ),
+      Making: moneyInDisplayCurrency(row.calculation.makingCharge, c, meta.rates),
+      Other: moneyInDisplayCurrency(
+        row.calculation.otherChargesTotal,
+        c,
+        meta.rates,
+      ),
+    };
+    if (hasEtsy) {
+      base.Etsy = row.etsy
+        ? moneyInDisplayCurrency(row.etsy.etsyAmount, c, meta.rates)
+        : 0;
+    }
+    base.Final = moneyInDisplayCurrency(
+      row.calculation.finalPrice,
       c,
       meta.rates,
-    ),
-    Making: moneyInDisplayCurrency(row.calculation.makingCharge, c, meta.rates),
-    Other: moneyInDisplayCurrency(
-      row.calculation.otherChargesTotal,
-      c,
-      meta.rates,
-    ),
-    Final: moneyInDisplayCurrency(row.calculation.finalPrice, c, meta.rates),
-  }));
+    );
+    return base;
+  });
 }
 
 export function buildVariationWorkbookBuffer(
